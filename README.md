@@ -404,6 +404,18 @@ When launched from the source tree, the GUI starts the Liminal runtime with
 depending on a stale `target/debug` binary. You can set `LIMINAL_BIN` to point
 the GUI at a specific Liminal executable.
 
+## Shopfloor Simulator
+
+`shopfloor/` holds a separate desktop app (Tauri + React, with its own Rust engine crate) that models an industrial
+shopfloor. In it you can drive mobile manipulators between machines and set sensor values live. It emits a JSON event
+stream (positions, move commands, sensor readings) designed to feed Liminal. See [shopfloor/README.md](shopfloor/README.md).
+
+```bash
+cd shopfloor
+npm install
+npm run tauri dev
+```
+
 ## Citation
 
 If you use this framework in academic work (papers, theses, or technical reports), please cite it using the following reference.

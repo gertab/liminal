@@ -28,3 +28,11 @@ target/
 /gui/dist/
 /gui/src-tauri/gen/
 /gui/src-tauri/target/
+
+# Shopfloor simulator frontend / Tauri build output / local recordings
+/shopfloor/node_modules/
+/shopfloor/dist/
+/shopfloor/src-tauri/gen/
+/shopfloor/recordings/
+
+/shopfloor/docs/
