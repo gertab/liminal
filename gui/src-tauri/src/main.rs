@@ -924,9 +924,9 @@ inputs = ["raw_data"]
 
     #[test]
     fn shopfloor_layout_loads_the_bundled_scenario() {
-        let path = crate::commands::shopfloor::resolve_scenario_path("config/shopfloor/default.toml");
+        let path = crate::commands::shopfloor::resolve_scenario_path("config/shopfloor/sample-floor.toml");
         assert!(path.is_absolute());
-        let layout = crate::commands::shopfloor::load_layout(&path).expect("default scenario loads");
+        let layout = crate::commands::shopfloor::load_layout(&path).expect("sample scenario loads");
         let json = serde_json::to_value(&layout).expect("layout serialises");
         assert_eq!(json["scenario"]["mobile_manipulators"][0]["id"], "mm1");
         assert_eq!(json["state"]["mobile_manipulators"][0]["id"], "mm1");
@@ -942,13 +942,13 @@ inputs = ["raw_data"]
     fn shopfloor_scenarios_are_listed_and_paths_made_relative() {
         let scenarios = crate::commands::shopfloor::list_shopfloor_scenarios().expect("scenarios listed");
         assert!(
-            scenarios.contains(&"config/shopfloor/default.toml".to_string()),
+            scenarios.contains(&"config/shopfloor/sample-floor.toml".to_string()),
             "{scenarios:?}"
         );
-        let absolute = crate::paths::repo_root().join("config/shopfloor/default.toml");
+        let absolute = crate::paths::repo_root().join("config/shopfloor/sample-floor.toml");
         assert_eq!(
             crate::commands::shopfloor::scenario_parameter_path(&absolute),
-            "config/shopfloor/default.toml"
+            "config/shopfloor/sample-floor.toml"
         );
         assert_eq!(
             crate::commands::shopfloor::scenario_parameter_path(Path::new("/elsewhere/s.toml")),

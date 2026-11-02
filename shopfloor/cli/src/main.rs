@@ -1,9 +1,9 @@
 //! `shopfloor`: run a scenario (and optionally one of its scenes) without the GUI.
 //!
 //! ```text
-//! shopfloor check config/shopfloor/default.toml
-//! shopfloor run config/shopfloor/default.toml --scene production --duration 300
-//! shopfloor run config/shopfloor/default.toml --scene production --fast --duration 600 --jsonl out.jsonl
+//! shopfloor check config/shopfloor/sample-floor.toml
+//! shopfloor run config/shopfloor/sample-floor.toml --scene production --duration 300
+//! shopfloor run config/shopfloor/sample-floor.toml --scene production --fast --duration 600 --jsonl out.jsonl
 //! ```
 //!
 //! Events go to the scenario's `[output.sinks]` (plus `--jsonl`); logs go to stderr.

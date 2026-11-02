@@ -16,7 +16,7 @@
 type = "shopfloor"
 output = "shopfloor_events"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { scenario = "config/shopfloor/default.toml"}
+parameters = { scenario = "config/shopfloor/sample-floor.toml", scene = "vibration_fault"}
 
 [pipelines.shopfloor]
 description = "Split the shopfloor stream: MM activity, sensor readings, vibration alerts"

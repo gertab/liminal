@@ -149,7 +149,7 @@ pub fn processor_descriptors() -> Vec<ProcessorDescriptor> {
                         "Scenario",
                         FieldKind::String,
                         true,
-                        Some("config/shopfloor/default.toml"),
+                        Some("config/shopfloor/sample-floor.toml"),
                         &[],
                         "Scenario file (layout, sensors, actions, scenes), relative to the working \
                          directory. Scenario files live in config/shopfloor/.",
@@ -1021,7 +1021,7 @@ mod tests {
         assert_eq!(scenario.renderer.as_deref(), Some("shopfloor_scenario"));
         assert_eq!(
             scenario.default_value.as_deref(),
-            Some("config/shopfloor/default.toml")
+            Some("config/shopfloor/sample-floor.toml")
         );
     }
 

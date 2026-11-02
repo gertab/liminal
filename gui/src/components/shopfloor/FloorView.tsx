@@ -74,9 +74,13 @@ export function FloorView({
   /** Converts a mouse position to floor coordinates, or null when outside the floor. */
   const toFloor = (event: MouseEvent<SVGElement>): Vec2 | null => {
     const svg = svgRef.current;
-    const matrix = svg?.getScreenCTM();
-    if (!svg || !matrix) return null;
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    if (!svg) return null;
+    const point = clientToViewBox(svg, event.clientX, event.clientY, {
+      x: -MARGIN_M,
+      y: -MARGIN_M,
+      width: width + 2 * MARGIN_M,
+      height: height + 2 * MARGIN_M,
+    });
     const floorPoint = { x: point.x, y: height - point.y };
     const inside =
       floorPoint.x >= 0 && floorPoint.x <= width && floorPoint.y >= 0 && floorPoint.y <= height;
@@ -184,6 +188,26 @@ export function FloorView({
       )}
     </svg>
   );
+}
+
+/**
+ * Mouse position (client pixels) → SVG user units (metres, y down), from the SVG's on-screen box
+ * and its viewBox (`preserveAspectRatio="xMidYMid meet"`).
+ *
+ * Not `getScreenCTM()`: WebKit (the macOS webview) ignores CSS transforms on HTML ancestors there,
+ * so inside the zoomed/panned canvas the target landed away from the mouse.
+ */
+function clientToViewBox(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+  viewBox: { x: number; y: number; width: number; height: number },
+): Vec2 {
+  const rect = svg.getBoundingClientRect();
+  const scale = Math.min(rect.width / viewBox.width, rect.height / viewBox.height);
+  const left = rect.left + (rect.width - viewBox.width * scale) / 2;
+  const top = rect.top + (rect.height - viewBox.height * scale) / 2;
+  return { x: viewBox.x + (clientX - left) / scale, y: viewBox.y + (clientY - top) / scale };
 }
 
 interface SensorReadoutsProps {

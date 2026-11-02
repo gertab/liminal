@@ -137,7 +137,7 @@ mod tests {
     }
 
     fn default_scenario() -> Arc<Scenario> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/shopfloor/default.toml");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/shopfloor/sample-floor.toml");
         Arc::new(load_scenario(&path).unwrap())
     }
 

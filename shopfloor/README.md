@@ -22,7 +22,7 @@ The folder holds:
 [inputs.floor]
 type = "shopfloor"
 output = "shopfloor_events"
-parameters = { scenario = "config/shopfloor/default.toml", scene = "production" }
+parameters = { scenario = "config/shopfloor/sample-floor.toml", scene = "production" }
 ```
 
 | Parameter | Default | Meaning |
@@ -88,10 +88,10 @@ scenario's `[output.sinks]`, and logs go to stderr.
 
 ```bash
 cd shopfloor
-cargo run -p shopfloor-cli -- check ../config/shopfloor/default.toml                         # validate + list contents
-cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene production        # real time, until Ctrl+C
-cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene vibration_fault   # ends when the scene ends
-cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene production \
+cargo run -p shopfloor-cli -- check ../config/shopfloor/sample-floor.toml                         # validate + list contents
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production        # real time, until Ctrl+C
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene vibration_fault   # ends when the scene ends
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production \
     --fast --duration 600 --jsonl recordings/production.jsonl                      # 10 min of data in < 1 s
 ```
 
@@ -173,7 +173,7 @@ TOML, in metres and seconds.
 - Heading 0 is +x, counter-clockwise.
 - **Unknown keys are errors.** All validation errors are reported together.
 
-See [config/shopfloor/default.toml](../config/shopfloor/default.toml) for a commented example.
+See [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml) for a commented example.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -276,7 +276,7 @@ How it plays:
 
 ## Feed Liminal
 
-The default scenario has a `tcp` output, `[output.sinks.liminal]`, listening on `127.0.0.1:9000`. Liminal's
+The sample scenario (`config/shopfloor/sample-floor.toml`) has a `tcp` output, `[output.sinks.liminal]`, listening on `127.0.0.1:9000`. Liminal's
 `tcp_input` connects to it as a client. [config/examples/config_shopfloor_tcp.toml](../config/examples/config_shopfloor_tcp.toml)
 is a ready-made pipeline:
 - it splits the stream into MM activity (moves, arrivals, actions, sensor changes, scene events) and sensor readings;
@@ -285,7 +285,7 @@ is a ready-made pipeline:
 
 ```bash
 # terminal 1: shopfloor
-cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene production
+cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production
 # terminal 2: Liminal (or open the config in the Liminal GUI and press Run)
 cargo run -- --config config/examples/config_shopfloor_tcp.toml
 ```
@@ -297,7 +297,7 @@ How the link behaves:
   - Shopfloor accepts any number of clients and drops ones that disconnect.
   - Events sent while nothing is connected are not kept, so Liminal only sees what happens after it connects.
 - **Connection status:** the CLI logs each connect and disconnect.
-- **One process per port:** only one process can listen on a port, so two real-time CLI runs of the default scenario
+- **One process per port:** only one process can listen on a port, so two real-time CLI runs of the sample scenario
   can't run at once; the second fails with "Failed to listen on 127.0.0.1:9000". Change `bind` (or use `--tcp`).
 - **Framing:** each event is a 4-byte big-endian length followed by its JSON. A batch goes out in a single write, so
   frames arrive whole.
