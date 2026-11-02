@@ -23,7 +23,7 @@ npm install                 # once
 npm run tauri dev           # Vite on 127.0.0.1:5174 + the app window
 ```
 
-- The app opens `scenarios/default.toml`.
+- The app opens [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml). Scenario files live in `config/shopfloor/`, next to the other configs.
 - It uses port **5174**, so it can run at the same time as the pipeline GUI (5173).
 - App logs go to **stderr**.
 - **stdout** carries only event JSON lines (when the `stdout` sink is enabled). For example:
@@ -36,10 +36,10 @@ scenario's `[output.sinks]`, and logs go to stderr.
 
 ```bash
 cd shopfloor
-cargo run -p shopfloor-cli -- check scenarios/default.toml                         # validate + list contents
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production        # real time, until Ctrl+C
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene vibration_fault   # ends when the scene ends
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production \
+cargo run -p shopfloor-cli -- check ../config/shopfloor/sample-floor.toml                         # validate + list contents
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production        # real time, until Ctrl+C
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene vibration_fault   # ends when the scene ends
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production \
     --fast --duration 600 --jsonl recordings/production.jsonl                      # 10 min of data in < 1 s
 ```
 
@@ -77,7 +77,7 @@ npm run build               # TypeScript type-check + production bundle
 | Pause / reset | Toolbar, or **Space** to pause and resume. Reset returns to start positions, default sensor values and time 0. |
 | Inspect the output | The bottom panel shows every event. You can filter by kind or entity. **{}** shows the raw JSON lines that the sinks write. |
 | Play a scene | **Scenes** at the top right: **Play** / **Stop**. While it plays, each track shows what it waits on, and the toolbar shows the scene and its iteration. Pause and Reset apply to the scene too, and manual control still works. |
-| Switch scenario | **Open** (the picker starts in `scenarios/`). **Reload** re-reads the current file. |
+| Switch scenario | **Open** (the picker starts in `config/shopfloor/`). **Reload** re-reads the current file. |
 
 ## Architecture
 
@@ -87,7 +87,6 @@ shopfloor/
   cli/          shopfloor-cli: the headless `shopfloor` command
   src-tauri/    shopfloor-gui: thin Tauri shell (commands + event bridge)
   src/          React UI: draws state, sends commands
-  scenarios/    layout files (TOML)
   docs/         design notes
 ```
 
@@ -130,7 +129,7 @@ TOML, in metres and seconds.
 - Heading 0 is +x, counter-clockwise.
 - **Unknown keys are errors.** All validation errors are reported together.
 
-See [scenarios/default.toml](scenarios/default.toml) for a commented example.
+See [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml) for a commented example.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -233,7 +232,7 @@ How it plays:
 
 ## Feed Liminal
 
-The default scenario has a `tcp` output, `[output.sinks.liminal]`, listening on `127.0.0.1:9000`. Liminal's
+The sample scenario (`config/shopfloor/sample-floor.toml`) has a `tcp` output, `[output.sinks.liminal]`, listening on `127.0.0.1:9000`. Liminal's
 `tcp_input` connects to it as a client. [config/examples/config_shopfloor_tcp.toml](../config/examples/config_shopfloor_tcp.toml)
 is a ready-made pipeline:
 - it splits the stream into MM activity (moves, arrivals, actions, sensor changes, scene events) and sensor readings;
@@ -242,7 +241,7 @@ is a ready-made pipeline:
 
 ```bash
 # terminal 1: shopfloor (or the app, playing a scene)
-cd shopfloor && cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production
+cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production
 # terminal 2: Liminal (or open the config in the Liminal GUI and press Run)
 cargo run -- --config config/examples/config_shopfloor_tcp.toml
 ```
@@ -255,7 +254,7 @@ How the link behaves:
   - Events sent while nothing is connected are not kept, so Liminal only sees what happens after it connects.
 - **Connection status:** in the app, the toolbar's `liminal` badge shows a green dot and the client count while
   Liminal is connected. The CLI logs connects and disconnects.
-- **One process per port:** only one process can listen on a port. The app and a real-time CLI run of the default
+- **One process per port:** only one process can listen on a port. The app and a real-time CLI run of the sample
   scenario can't both run at once; the second fails with "Failed to listen on 127.0.0.1:9000". Change `bind` (or use
   `--tcp`) to run both.
 - **Framing:** each event is a 4-byte big-endian length followed by its JSON. A batch goes out in a single write, so

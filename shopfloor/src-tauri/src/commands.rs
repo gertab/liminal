@@ -22,20 +22,26 @@ struct Running {
     bridge: Bridge,
 }
 
-/// `shopfloor/scenarios`, fixed at compile time (like gui's `repo_root()`).
+/// `config/shopfloor/`, where scenario files live next to the other configs. Fixed at compile time
+/// (like gui's `repo_root()`).
 fn scenarios_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("src-tauri is nested under shopfloor")
-        .join("scenarios")
+        .and_then(Path::parent)
+        .expect("src-tauri is nested under shopfloor/ in the repo")
+        .join("config")
+        .join("shopfloor")
 }
+
+/// The scenario the app opens.
+const SAMPLE_SCENARIO: &str = "sample-floor.toml";
 
 #[tauri::command]
 pub(crate) fn default_scenario_path() -> String {
-    scenarios_dir().join("default.toml").to_string_lossy().to_string()
+    scenarios_dir().join(SAMPLE_SCENARIO).to_string_lossy().to_string()
 }
 
-/// Loads a scenario (default: `scenarios/default.toml`) and (re)starts the simulation with it.
+/// Loads a scenario (default: `config/shopfloor/sample-floor.toml`) and (re)starts the simulation with it.
 /// If the file is invalid, the current simulation keeps running.
 #[tauri::command]
 pub(crate) async fn load_scenario(
@@ -45,7 +51,7 @@ pub(crate) async fn load_scenario(
 ) -> Result<Scenario, String> {
     let path = path
         .map(PathBuf::from)
-        .unwrap_or_else(|| scenarios_dir().join("default.toml"));
+        .unwrap_or_else(|| scenarios_dir().join(SAMPLE_SCENARIO));
     let scenario = Arc::new(shopfloor_sim::load_scenario(&path).map_err(|e| format!("{e:#}"))?);
 
     let mut running = host.running.lock().await;
@@ -111,7 +117,7 @@ pub(crate) async fn control_sim(host: State<'_, SimHost>, control: Control) -> R
         .map_err(|e| format!("{e:#}"))
 }
 
-/// File picker that starts in `scenarios/`.
+/// File picker that starts in `config/shopfloor/`.
 #[tauri::command]
 pub(crate) async fn pick_scenario_file(window: tauri::Window) -> Result<Option<String>, String> {
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -141,4 +147,16 @@ fn dialog_path_to_string(path: FilePath) -> Result<String, String> {
         .into_path()
         .map(|path| path.to_string_lossy().to_string())
         .map_err(|error| format!("Selected path is not a filesystem path: {}", error))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_app_opens_the_sample_scenario_in_config_shopfloor() {
+        let path = PathBuf::from(default_scenario_path());
+        assert!(path.ends_with("config/shopfloor/sample-floor.toml"), "{}", path.display());
+        shopfloor_sim::load_scenario(&path).expect("sample scenario loads");
+    }
 }

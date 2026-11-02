@@ -1,10 +1,10 @@
 # Shopfloor → Liminal over TCP
 #
 # Consumes the event stream of the shopfloor simulator (shopfloor/README.md). The simulator listens
-# on 127.0.0.1:9000 (`[output.sinks.liminal]` in shopfloor/scenarios/default.toml); this pipeline
+# on 127.0.0.1:9000 (`[output.sinks.liminal]` in config/shopfloor/sample-floor.toml); this pipeline
 # connects to it and reconnects whenever the simulator restarts, so either side can start first.
 #
-#   cd shopfloor && cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production
+#   cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production
 #   cargo run -- --config config/examples/config_shopfloor_tcp.toml
 #
 # (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).

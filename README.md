@@ -417,7 +417,7 @@ pipeline that connects to it. See [shopfloor/README.md](shopfloor/README.md).
 cd shopfloor
 npm install
 npm run tauri dev                                                            # the app
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production  # headless
+cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production  # headless
 ```
 
 ## Citation
