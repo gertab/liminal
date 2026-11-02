@@ -240,6 +240,20 @@ h3 {
   font-size: 11px;
 }
 
+/* TCP sinks: a dot that lights up while a client (Liminal) is connected. */
+.sink-dot {
+  width: 6px;
+  height: 6px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.sink-badge.is-connected .sink-dot {
+  background: #6ee36e;
+  box-shadow: 0 0 4px #6ee36e;
+}
+
 /* --- Floor (SVG, units are metres) -------------------------------------------------------- */
 
 .floor-svg {

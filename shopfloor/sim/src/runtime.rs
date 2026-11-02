@@ -8,7 +8,8 @@ use crate::command::{CommandEnvelope, Control};
 use crate::engine::{Engine, WorldState};
 use crate::event::SimEvent;
 use crate::scenario::Scenario;
-use crate::sinks::{SinkThread, build_sink, spawn_sink};
+use crate::sinks::{SinkMonitor, SinkThread, build_sink, spawn_sink};
+use std::collections::BTreeMap;
 use anyhow::anyhow;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -35,6 +36,7 @@ pub struct SimRuntime {
     state: watch::Receiver<WorldState>,
     engine_task: JoinHandle<()>,
     sinks: Vec<SinkThread>,
+    monitor: SinkMonitor,
 }
 
 impl SimRuntime {
@@ -46,9 +48,10 @@ impl SimRuntime {
         let (requests, request_rx) = mpsc::channel(REQUEST_CHANNEL_CAPACITY);
 
         // Sinks subscribe before the engine starts so they see the opening `sim started` event.
+        let monitor = SinkMonitor::default();
         let mut sinks = Vec::new();
         for def in &scenario.output.sinks {
-            let sink = build_sink(def)?;
+            let sink = build_sink(def, &monitor)?;
             sinks.push(spawn_sink(def.name.clone(), sink, events.subscribe()));
         }
 
@@ -60,7 +63,13 @@ impl SimRuntime {
             state,
             engine_task,
             sinks,
+            monitor,
         })
+    }
+
+    /// Live status of sinks that report one (TCP: address and connected clients), by sink name.
+    pub fn sink_status(&self) -> BTreeMap<String, String> {
+        self.monitor.snapshot()
     }
 
     pub fn scenario(&self) -> &Arc<Scenario> {

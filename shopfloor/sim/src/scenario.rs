@@ -157,7 +157,7 @@ impl Default for OutputSpec {
     }
 }
 
-/// Where the event stream goes, besides the UI. Phase 2 adds `tcp`.
+/// Where the event stream goes, besides the UI.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SinkKind {
@@ -169,6 +169,9 @@ pub enum SinkKind {
         #[serde(default = "default_true")]
         append: bool,
     },
+    /// Listen on `bind` (e.g. `127.0.0.1:9000`) and stream every event to each connected client
+    /// as a length-prefixed JSON frame (what Liminal's `tcp_input` reads).
+    Tcp { bind: String },
 }
 
 fn default_name() -> String {
@@ -575,6 +578,12 @@ fn resolve(spec: ScenarioSpec, source_path: Option<&Path>) -> anyhow::Result<Sce
     for (name, kind) in &output.sinks {
         let kind = match kind {
             SinkKind::Stdout => SinkKind::Stdout,
+            SinkKind::Tcp { bind } => {
+                if bind.trim().is_empty() {
+                    errors.push(format!("output.sinks.{name}.bind must not be empty"));
+                }
+                SinkKind::Tcp { bind: bind.clone() }
+            }
             SinkKind::Jsonl { path, append } => {
                 if path.as_os_str().is_empty() {
                     errors.push(format!("output.sinks.{name}.path must not be empty"));
@@ -844,6 +853,21 @@ mod tests {
                     kind: SinkKind::Stdout,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn parses_tcp_sinks() {
+        let text = format!("{MINIMAL}\n[output.sinks.liminal]\ntype = \"tcp\"\nbind = \"127.0.0.1:9000\"\n");
+        let scenario = parse_scenario(&text, None).unwrap();
+        assert_eq!(
+            scenario.output.sinks,
+            vec![SinkDef {
+                name: "liminal".into(),
+                kind: SinkKind::Tcp {
+                    bind: "127.0.0.1:9000".into()
+                },
+            }]
         );
     }
 

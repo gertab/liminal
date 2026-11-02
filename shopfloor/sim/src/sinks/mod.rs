@@ -6,13 +6,17 @@
 
 mod jsonl;
 mod stdout;
+mod tcp;
 
 pub use jsonl::JsonlSink;
 pub use stdout::StdoutSink;
+pub use tcp::{TcpSink, encode_frames};
 
 use crate::event::SimEvent;
 use crate::runtime::EventBatch;
 use crate::scenario::{SinkDef, SinkKind};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -24,10 +28,30 @@ pub trait EventSink: Send {
     }
 }
 
-pub fn build_sink(def: &SinkDef) -> anyhow::Result<Box<dyn EventSink>> {
+/// Live status lines of sinks that have one (e.g. "listening on 127.0.0.1:9000 · 1 connected"),
+/// keyed by sink name. Shared between the sink threads and whoever wants to show them.
+#[derive(Debug, Clone, Default)]
+pub struct SinkMonitor(Arc<Mutex<BTreeMap<String, String>>>);
+
+impl SinkMonitor {
+    pub fn set(&self, sink: &str, status: String) {
+        self.0.lock().expect("sink monitor lock").insert(sink.to_string(), status);
+    }
+
+    pub fn remove(&self, sink: &str) {
+        self.0.lock().expect("sink monitor lock").remove(sink);
+    }
+
+    pub fn snapshot(&self) -> BTreeMap<String, String> {
+        self.0.lock().expect("sink monitor lock").clone()
+    }
+}
+
+pub fn build_sink(def: &SinkDef, monitor: &SinkMonitor) -> anyhow::Result<Box<dyn EventSink>> {
     Ok(match &def.kind {
         SinkKind::Stdout => Box::new(StdoutSink),
         SinkKind::Jsonl { path, append } => Box::new(JsonlSink::open(path, *append)?),
+        SinkKind::Tcp { bind } => Box::new(TcpSink::bind(&def.name, bind, monitor.clone())?),
     })
 }
 

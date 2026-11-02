@@ -6,7 +6,8 @@ export type Vec2 = { x: number; y: number };
 
 export type SinkDef =
   | { name: string; type: "stdout" }
-  | { name: string; type: "jsonl"; path: string; append: boolean };
+  | { name: string; type: "jsonl"; path: string; append: boolean }
+  | { name: string; type: "tcp"; bind: string };
 
 export interface MachineDef {
   id: string;

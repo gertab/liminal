@@ -16,6 +16,8 @@ export interface Simulation {
   counts: Partial<Record<EventKind, number>>;
   /** The latest `action` event per MM id (for on-floor feedback). */
   lastActions: Record<string, ActionEvent>;
+  /** Live status of sinks that report one (TCP connections), by sink name. */
+  sinkStatus: Record<string, string>;
   error: string | null;
   loading: boolean;
   load: (path?: string) => Promise<void>;
@@ -32,6 +34,7 @@ export function useSimulation(): Simulation {
   const [events, setEvents] = useState<SimEvent[]>([]);
   const [counts, setCounts] = useState<Partial<Record<EventKind, number>>>({});
   const [lastActions, setLastActions] = useState<Record<string, ActionEvent>>({});
+  const [sinkStatus, setSinkStatus] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const loadedOnceRef = useRef(false);
@@ -128,6 +131,16 @@ export function useSimulation(): Simulation {
     }
   }, []);
 
+  // Poll sink status (e.g. whether Liminal is connected over TCP).
+  useEffect(() => {
+    const poll = () => {
+      api.getSinkStatus().then(setSinkStatus, () => setSinkStatus({}));
+    };
+    poll();
+    const timer = window.setInterval(poll, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Load the default scenario once (the ref survives React StrictMode's double mount).
   useEffect(() => {
     if (!loadedOnceRef.current) {
@@ -142,6 +155,7 @@ export function useSimulation(): Simulation {
     events,
     counts,
     lastActions,
+    sinkStatus,
     error,
     loading,
     load,

@@ -2,8 +2,8 @@ mod bridge;
 mod commands;
 
 use commands::{
-    SimHost, control_sim, default_scenario_path, get_scenario, get_state, load_scenario,
-    pick_scenario_file, send_command,
+    SimHost, control_sim, default_scenario_path, get_scenario, get_sink_status, get_state,
+    load_scenario, pick_scenario_file, send_command,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -25,6 +25,7 @@ fn main() {
             pick_scenario_file,
             get_scenario,
             get_state,
+            get_sink_status,
             send_command,
             control_sim,
         ])

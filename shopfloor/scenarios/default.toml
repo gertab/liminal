@@ -199,6 +199,12 @@ position_interval_ms = 100   # moving MMs report their position this often
 [output.sinks.terminal]
 type = "stdout"
 
+# Stream every event to Liminal: its `tcp_input` (mode = "client") connects here.
+# See config/examples/config_shopfloor_tcp.toml. Only one process can listen on a port at a time.
+[output.sinks.liminal]
+type = "tcp"
+bind = "127.0.0.1:9000"
+
 # Record every event to a file (relative to this scenario file). `recordings/` is git-ignored.
 # [output.sinks.recording]
 # type = "jsonl"

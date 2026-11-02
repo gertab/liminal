@@ -79,6 +79,7 @@ export default function App() {
         world={world}
         loading={sim.loading}
         selectedMmLabel={selectedDef?.label ?? null}
+        sinkStatus={sim.sinkStatus}
         onOpen={() => void sim.pickAndLoad()}
         onReload={() => void sim.load(scenario?.source_path ?? undefined)}
         onControl={(value) => void control(value)}

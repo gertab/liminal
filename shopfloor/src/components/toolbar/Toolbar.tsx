@@ -1,4 +1,4 @@
-import { Clapperboard, FileText, FolderOpen, Pause, Play, RefreshCw, RotateCcw, Terminal } from "lucide-react";
+import { Cable, Clapperboard, FileText, FolderOpen, Pause, Play, RefreshCw, RotateCcw, Terminal } from "lucide-react";
 import { formatSimTime } from "../../format";
 import type { Control, Scenario, WorldState } from "../../types";
 
@@ -7,12 +7,22 @@ interface ToolbarProps {
   world: WorldState | null;
   loading: boolean;
   selectedMmLabel: string | null;
+  sinkStatus: Record<string, string>;
   onOpen: () => void;
   onReload: () => void;
   onControl: (control: Control) => void;
 }
 
-export function Toolbar({ scenario, world, loading, selectedMmLabel, onOpen, onReload, onControl }: ToolbarProps) {
+export function Toolbar({
+  scenario,
+  world,
+  loading,
+  selectedMmLabel,
+  sinkStatus,
+  onOpen,
+  onReload,
+  onControl,
+}: ToolbarProps) {
   const paused = world?.paused ?? false;
   return (
     <header className="toolbar">
@@ -72,12 +82,30 @@ export function Toolbar({ scenario, world, loading, selectedMmLabel, onOpen, onR
         </div>
       )}
       <div className="sinks" title="Where events are written besides this window ([output.sinks] in the scenario)">
-        {scenario?.output.sinks.map((sink) => (
-          <span key={sink.name} className="sink-badge" title={sink.type === "jsonl" ? sink.path : "stdout"}>
-            {sink.type === "jsonl" ? <FileText size={12} /> : <Terminal size={12} />}
-            {sink.name}
-          </span>
-        ))}
+        {scenario?.output.sinks.map((sink) => {
+          if (sink.type === "tcp") {
+            const status = sinkStatus[sink.name];
+            const clients = Number(status?.match(/(\d+) connected/)?.[1] ?? 0);
+            return (
+              <span
+                key={sink.name}
+                className={`sink-badge${clients > 0 ? " is-connected" : ""}`}
+                title={`tcp: ${status ?? `not listening (${sink.bind})`}`}
+              >
+                <Cable size={12} />
+                {sink.name}
+                <span className="sink-dot" />
+                {clients}
+              </span>
+            );
+          }
+          return (
+            <span key={sink.name} className="sink-badge" title={sink.type === "jsonl" ? sink.path : "stdout"}>
+              {sink.type === "jsonl" ? <FileText size={12} /> : <Terminal size={12} />}
+              {sink.name}
+            </span>
+          );
+        })}
         {scenario && scenario.output.sinks.length === 0 && <span className="muted small">no sinks</span>}
       </div>
     </header>

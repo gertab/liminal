@@ -15,7 +15,7 @@ use shopfloor_sim::headless::{FastRun, Outcome, run_fast, scene_outcome};
 use shopfloor_sim::runtime::now_ms;
 use shopfloor_sim::scenario::{SinkDef, SinkKind};
 use shopfloor_sim::scene::Repeat;
-use shopfloor_sim::sinks::{EventSink, build_sink};
+use shopfloor_sim::sinks::{EventSink, SinkMonitor, build_sink};
 use shopfloor_sim::{Scenario, SimRuntime, load_scenario};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -51,6 +51,10 @@ enum Command {
         /// Also write every event to this JSONL file (overwritten).
         #[arg(long, value_name = "PATH")]
         jsonl: Option<PathBuf>,
+        /// Also stream every event over TCP on this address, e.g. 127.0.0.1:9000 (what Liminal's
+        /// `tcp_input` connects to). Ignored with --fast.
+        #[arg(long, value_name = "ADDR")]
+        tcp: Option<String>,
     },
 }
 
@@ -76,7 +80,8 @@ fn main() -> ExitCode {
             duration,
             fast,
             jsonl,
-        } => run(&scenario, scene, duration, fast, jsonl),
+            tcp,
+        } => run(&scenario, scene, duration, fast, jsonl, tcp),
     };
     match result {
         Ok(code) => code,
@@ -152,8 +157,15 @@ fn run(
     duration: Option<f64>,
     fast: bool,
     jsonl: Option<PathBuf>,
+    tcp: Option<String>,
 ) -> anyhow::Result<ExitCode> {
     let mut scenario = load_scenario(path)?;
+    if let Some(bind) = tcp {
+        scenario.output.sinks.push(SinkDef {
+            name: "cli-tcp".to_string(),
+            kind: SinkKind::Tcp { bind },
+        });
+    }
     if let Some(path) = jsonl {
         scenario.output.sinks.push(SinkDef {
             name: "cli-jsonl".to_string(),
@@ -182,12 +194,17 @@ fn run(
     let scenario = Arc::new(scenario);
 
     let end = if fast {
-        let mut sinks: Vec<Box<dyn EventSink>> = scenario
-            .output
-            .sinks
-            .iter()
-            .map(build_sink)
-            .collect::<anyhow::Result<_>>()?;
+        // Streaming minutes of data into Liminal in a fraction of a second isn't useful, so TCP
+        // sinks only run in real time.
+        let monitor = SinkMonitor::default();
+        let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
+        for def in &scenario.output.sinks {
+            if matches!(def.kind, SinkKind::Tcp { .. }) {
+                tracing::info!("--fast: skipping TCP sink '{}'", def.name);
+                continue;
+            }
+            sinks.push(build_sink(def, &monitor)?);
+        }
         let run = FastRun {
             scene: scene.clone(),
             max_sim_ms,
@@ -275,6 +292,7 @@ fn describe_sink(sink: &SinkDef) -> String {
     match &sink.kind {
         SinkKind::Stdout => format!("{} (stdout)", sink.name),
         SinkKind::Jsonl { path, .. } => format!("{} (jsonl → {})", sink.name, path.display()),
+        SinkKind::Tcp { bind } => format!("{} (tcp, listening on {bind})", sink.name),
     }
 }
 

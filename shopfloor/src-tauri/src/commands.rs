@@ -4,6 +4,7 @@ use crate::bridge::Bridge;
 use shopfloor_sim::{
     CommandEnvelope, Control, Origin, Scenario, SimCommand, SimRuntime, WorldState,
 };
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -71,6 +72,18 @@ pub(crate) async fn get_scenario(host: State<'_, SimHost>) -> Result<Option<Scen
 pub(crate) async fn get_state(host: State<'_, SimHost>) -> Result<Option<WorldState>, String> {
     let running = host.running.lock().await;
     Ok(running.as_ref().map(|running| running.runtime.state()))
+}
+
+/// Live status of sinks that report one (TCP: address and connected clients), by sink name.
+#[tauri::command]
+pub(crate) async fn get_sink_status(
+    host: State<'_, SimHost>,
+) -> Result<BTreeMap<String, String>, String> {
+    let running = host.running.lock().await;
+    Ok(running
+        .as_ref()
+        .map(|running| running.runtime.sink_status())
+        .unwrap_or_default())
 }
 
 #[tauri::command]

@@ -12,8 +12,8 @@ sensors can also stand on their own at a fixed spot.
   or headless from the command line, so the stream can be produced without anyone clicking.
 - Everything that happens is emitted as a stream of JSON events: positions, move commands, actions and sensor readings.
 
-The stream is designed to be consumed by Liminal. Events are written to the in-app log, and optionally to stdout and
-JSONL files (see [Todos](#todos) for the TCP link to Liminal).
+The stream is designed to be consumed by Liminal. Events go to the in-app log and, depending on the scenario's
+outputs, to stdout, JSONL files, and **over TCP straight into a Liminal pipeline** (see [Feed Liminal](#feed-liminal)).
 
 ## Run it
 
@@ -49,6 +49,7 @@ cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production \
 | `--duration SECS` | Stop after this much simulation time. Required with `--fast` for a looping scene. |
 | `--fast` | Run as fast as possible. Events are still stamped as if the run happened in real time. |
 | `--jsonl PATH` | Also write every event to this file (overwritten). |
+| `--tcp ADDR` | Also stream every event over TCP on this address, e.g. `127.0.0.1:9000`. TCP outputs are skipped with `--fast`. |
 
 Without `--scene` or `--duration`, a real-time run continues until Ctrl+C. The binary itself is
 `target/debug/shopfloor` (or `cargo build -p shopfloor-cli --release`).
@@ -166,6 +167,7 @@ See [scenarios/default.toml](scenarios/default.toml) for a commented example.
 | `[output] position_interval_ms` | 100 | How often a moving MM reports its position |
 | `[output.sinks.<name>] type = "stdout"` | | One JSON line per event on stdout |
 | `[output.sinks.<name>] type = "jsonl", path, append = true` | | One JSON line per event in a file. The path is relative to the scenario file. `shopfloor/recordings/` is git-ignored. |
+| `[output.sinks.<name>] type = "tcp", bind` | | Listen on `bind` (e.g. `127.0.0.1:9000`) and stream every event to each connected client as a length-prefixed JSON frame, which is what Liminal's `tcp_input` reads (see [Feed Liminal](#feed-liminal)). |
 
 Rules worth knowing:
 - Entity ids use letters, digits, `_` and `-`.
@@ -228,6 +230,39 @@ How it plays:
   a loop without any wait.
 - Playing a scene while another plays replaces it. Manual commands still work during a scene.
 - Every command a scene runs appears as its usual event with `origin: "scene"`, so a stream records who did what.
+
+## Feed Liminal
+
+The default scenario has a `tcp` output, `[output.sinks.liminal]`, listening on `127.0.0.1:9000`. Liminal's
+`tcp_input` connects to it as a client. [config/examples/config_shopfloor_tcp.toml](../config/examples/config_shopfloor_tcp.toml)
+is a ready-made pipeline:
+- it splits the stream into MM activity (moves, arrivals, actions, sensor changes, scene events) and sensor readings;
+- it flags vibration readings above 1.0 g;
+- it logs both to the console.
+
+```bash
+# terminal 1: shopfloor (or the app, playing a scene)
+cd shopfloor && cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production
+# terminal 2: Liminal (or open the config in the Liminal GUI and press Run)
+cargo run -- --config config/examples/config_shopfloor_tcp.toml
+```
+
+How the link behaves:
+- **Either side can start first.**
+  - Liminal reconnects every second until shopfloor is listening. It logs each failed attempt as an error, which is
+    harmless.
+  - Shopfloor accepts any number of clients and drops ones that disconnect.
+  - Events sent while nothing is connected are not kept, so Liminal only sees what happens after it connects.
+- **Connection status:** in the app, the toolbar's `liminal` badge shows a green dot and the client count while
+  Liminal is connected. The CLI logs connects and disconnects.
+- **One process per port:** only one process can listen on a port. The app and a real-time CLI run of the default
+  scenario can't both run at once; the second fails with "Failed to listen on 127.0.0.1:9000". Change `bind` (or use
+  `--tcp`) to run both.
+- **Framing:** each event is a 4-byte big-endian length followed by its JSON. A batch goes out in a single write, so
+  frames arrive whole.
+  - Liminal's `tcp_input` can lose its place in the stream if a frame is ever split across its 100 ms read timeout
+    (ISSUES #10 in Liminal). That's rare on localhost.
+  - If it happens, Liminal logs a parse error, or drops the connection and reconnects.
 
 ## Output events: the Liminal contract
 
@@ -303,13 +338,10 @@ Notes for Liminal pipelines:
 
 ## Todos
 
-1. **Feed Liminal over TCP.**
-   - Add a `tcp` sink: a server that broadcasts each event as a frame (4-byte big-endian length + JSON, written in one
-     `write_all`).
-   - Add an example Liminal config using `tcp_input` (mode = client) that routes by `kind`.
-2. **Later:**
-   - richer scenes: steps triggered by other events, sensor ramps, labelled markers, random variation;
-   - obstacle-avoiding planner;
-   - lidar computed from the layout;
-   - in-app layout editing;
-   - MQTT sink.
+- Fix Liminal's TCP input so a frame split across its read timeout can't desync the stream (Liminal ISSUES #10).
+- **Later:**
+  - richer scenes: steps triggered by other events, sensor ramps, labelled markers, random variation;
+  - obstacle-avoiding planner;
+  - lidar computed from the layout;
+  - in-app layout editing;
+  - MQTT sink.
