@@ -35,4 +35,10 @@ target/
 # Shopfloor simulator local recordings
 /shopfloor/recordings/
 
+# Build output of the standalone shopfloor app (branch `shopfloor`). The app isn't on this
+# branch, but these folders stay on disk after switching back from `shopfloor`.
+/shopfloor/node_modules/
+/shopfloor/dist/
+/shopfloor/src-tauri/gen/
+
 /shopfloor/docs/
