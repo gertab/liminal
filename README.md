@@ -406,19 +406,19 @@ the GUI at a specific Liminal executable.
 
 ## Shopfloor Simulator
 
-`shopfloor/` holds a separate desktop app (Tauri + React, with its own Rust engine crate) that models an industrial
-shopfloor. In it you can drive mobile manipulators between machines, trigger actions, and set sensor values live, or
-play scripted scenes. It emits a JSON event stream (positions, move commands, actions, sensor readings) designed to
-feed Liminal. A `shopfloor` command-line tool runs scenarios and scenes without the window. The simulator streams
-its events over TCP; [config/examples/config_shopfloor_tcp.toml](config/examples/config_shopfloor_tcp.toml) is a
-pipeline that connects to it. See [shopfloor/README.md](shopfloor/README.md).
+The `shopfloor` input simulates an industrial shopfloor: machines, mobile manipulators that drive between them and
+perform actions, and sensors whose values you can change live. Scripted scenes can play automatically. Every event
+(positions, move commands, actions, sensor readings) flows into the pipeline as a JSON message.
+
+In the GUI, the input's node draws the floor live on the canvas, and selecting it shows the controls in the inspector.
+[config/examples/config_shopfloor.toml](config/examples/config_shopfloor.toml) is a complete example.
 
 ```bash
-cd shopfloor
-npm install
-npm run tauri dev                                                            # the app
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production  # headless
+cargo run -- --config config/examples/config_shopfloor.toml
 ```
+
+The simulation engine, its scenario files and a standalone `shopfloor` command-line tool live in `shopfloor/`. See
+[shopfloor/README.md](shopfloor/README.md).
 
 ## Citation
 

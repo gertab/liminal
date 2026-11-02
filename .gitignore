@@ -32,10 +32,7 @@ target/
 /gui/src-tauri/gen/
 /gui/src-tauri/target/
 
-# Shopfloor simulator frontend / Tauri build output / local recordings
-/shopfloor/node_modules/
-/shopfloor/dist/
-/shopfloor/src-tauri/gen/
+# Shopfloor simulator local recordings
 /shopfloor/recordings/
 
 /shopfloor/docs/

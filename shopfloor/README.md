@@ -1,35 +1,84 @@
 # Liminal Shopfloor
 
-An interactive shopfloor simulator. It lives in the Liminal repo next to the core runtime (`src/`) and the pipeline
-GUI (`gui/`), but is a separate application with no code dependency on either.
-
-A rectangle of floor holds fixed **machines** and **mobile manipulators (MMs)**. Both can carry **sensors**, and
-sensors can also stand on their own at a fixed spot.
-- You send MMs to machines or to any point on the floor.
+A shopfloor simulator built into Liminal as an input. A rectangle of floor holds fixed **machines** and **mobile
+manipulators (MMs)**. Both can carry **sensors**, and sensors can also stand on their own at a fixed spot.
+- MMs drive to machines or to any point on the floor.
 - MMs perform **actions** such as pick and place. These are *silent*: they only produce an event.
-- You change what each sensor reports while the simulation runs.
-- **Scenes** script all of the above: MMs shuttling between machines, actions, sensor faults. They play in the app
-  or headless from the command line, so the stream can be produced without anyone clicking.
-- Everything that happens is emitted as a stream of JSON events: positions, move commands, actions and sensor readings.
+- Sensor values can be changed while the simulation runs.
+- **Scenes** script all of the above, e.g. MMs shuttling between machines, actions, or a sensor fault. A scene can
+  start by itself when the pipeline runs.
+- Everything that happens becomes a stream of JSON events (positions, move commands, actions, sensor readings), which
+  flows into the rest of the pipeline.
 
-The stream is designed to be consumed by Liminal. Events go to the in-app log and, depending on the scenario's
-outputs, to stdout, JSONL files, and **over TCP straight into a Liminal pipeline** (see [Feed Liminal](#feed-liminal)).
+The folder holds:
+- the simulation engine (`sim/`, used by Liminal's `shopfloor` input);
+- the scenario files (`scenarios/`);
+- a `shopfloor` command-line tool that runs scenarios without Liminal, e.g. to record data or to stream to a separate
+  Liminal over TCP.
 
-## Run it
+## Use it in Liminal
 
-```bash
-cd shopfloor
-npm install                 # once
-npm run tauri dev           # Vite on 127.0.0.1:5174 + the app window
+```toml
+[inputs.floor]
+type = "shopfloor"
+output = "shopfloor_events"
+parameters = { scenario = "shopfloor/scenarios/default.toml", scene = "production" }
 ```
 
-- The app opens `scenarios/default.toml`.
-- It uses port **5174**, so it can run at the same time as the pipeline GUI (5173).
-- App logs go to **stderr**.
-- **stdout** carries only event JSON lines (when the `stdout` sink is enabled). For example:
-  `npm run tauri dev 2>/dev/null | grep '^{' | jq .`
+| Parameter | Default | Meaning |
+|---|---|---|
+| `scenario` | required | Scenario file, relative to the working directory (the repo root when the GUI runs the pipeline). |
+| `scene` | none | Scene to play as soon as the pipeline starts. |
+| `view_interval_ms` | 100 | How often the live floor is sent to the GUI. |
 
-### Headless (no window)
+A complete pipeline is in [config/examples/config_shopfloor.toml](../config/examples/config_shopfloor.toml). It plays
+`production`, splits the stream into MM activity and sensor readings, flags high vibration, and logs to the console.
+
+```bash
+cargo run -- --config config/examples/config_shopfloor.toml
+```
+
+The scenario's own `[output.sinks]` are ignored inside Liminal: the events go into the pipeline instead.
+
+### In the Liminal GUI
+
+The shopfloor input's node on the canvas is wider than the others and **draws the floor**:
+- before Run, the start positions;
+- while the pipeline runs, live, with a status line (sim time, scene and iteration);
+- after Stop, the last frame.
+
+Selecting the node shows a **Shopfloor** section at the top of the inspector. Its controls act on the running pipeline,
+so they are disabled until you press Run.
+
+| Do | How |
+|---|---|
+| Select an MM | Click it on the floor (in the node), or click its card in the inspector. Click again to deselect. |
+| Send it somewhere | With an MM selected, click a machine or any point on the floor. Or use the **Go to** buttons on its card. The MM drives to the machine's *dock* (the small circle). A new target replaces the current move. |
+| Stop it | **Stop** on the MM's card. |
+| Perform an action | The action buttons (✋ Pick, Place, …) on the MM's card. A greyed-out button shows why on hover (e.g. "'pick' needs mm1 at a machine"). |
+| Change a sensor | The slider or number field under **Sensors**. **↺** resets it to the default, and **noise σ** adds Gaussian noise. Clicking a reading or a ◇ floor sensor on the floor jumps to its control. |
+| Play a scene | **Scenes**: **Play** / **Stop**. While it plays, each track shows what it waits on. Manual control still works. |
+| Pause / reset | **Pause** / **Reset** at the top of the section. Reset returns to start positions, default sensor values and time 0, and stops the scene. |
+
+A refused command (e.g. an action whose conditions don't hold) shows as an error in the GUI and as a
+`command rejected` line in the console. The simulation keeps running.
+
+### From the terminal
+
+`--commands stdin` makes the pipeline accept commands for its stages, one JSON line each. That is how the GUI drives
+the shopfloor, and it also works by hand:
+
+```bash
+cargo run -- --config config/examples/config_shopfloor.toml --commands stdin
+{"stage":"floor","command":{"command":{"type":"perform","mm":"mm1","action":"pick"}}}
+{"stage":"floor","command":{"control":{"play_scene":"vibration_fault"}}}
+{"stage":"floor","command":{"control":"pause"}}
+```
+
+The inner `command` is either `{"command": <move_to | stop | perform | set_sensor | set_sensor_noise>}` or
+`{"control": "pause" | "resume" | "reset" | "stop_scene" | {"play_scene": "<id>"}}`.
+
+## Run it without Liminal
 
 The `shopfloor` command-line tool runs a scenario, and optionally one of its scenes, without the GUI. Events go to the
 scenario's `[output.sinks]`, and logs go to stderr.
@@ -57,46 +106,38 @@ Without `--scene` or `--duration`, a real-time run continues until Ctrl+C. The b
 ### Tests and checks
 
 ```bash
-cd shopfloor
-cargo test --workspace      # engine, scenes, scenario validation, golden event JSON, runtime, headless runs
-cargo clippy --workspace --all-targets
-npm run build               # TypeScript type-check + production bundle
+cd shopfloor && cargo test --workspace   # engine, scenes, scenario validation, golden event JSON, runtime, headless runs
+cargo test                               # (repo root) Liminal, including the shopfloor input and stage commands
+cd gui && npm run build                  # the GUI, including the shopfloor node and inspector
 ```
-
-## Using the app
-
-| Do | How |
-|---|---|
-| Select an MM | Click it on the floor or click its card on the right. Click again or press **Esc** to deselect. |
-| Send it to a machine | With an MM selected, click the machine. Or use the **Go to** buttons on the MM's card. The MM drives to the machine's *dock* (the small circle). |
-| Send it to a point | With an MM selected, click anywhere on the floor. A ghost circle shows where it will stop. |
-| Re-target | Give a new target while it moves. The old move is replaced immediately. |
-| Stop | **Stop** on the MM's card. |
-| Perform an action | Use the action buttons (✋ Pick, Place, …) on the MM's card. A greyed-out button shows why on hover (e.g. "'pick' needs mm1 at a machine"). The action name flashes above the MM, and the card shows the last action. |
-| Change a sensor | Use the slider or number field in **Sensors** on the right. **↺** resets it to the default. **noise σ** adds Gaussian noise. Clicking a reading or a ◇ floor sensor on the floor jumps to its control. Free-standing sensors are listed under **Floor**. |
-| Pause / reset | Toolbar, or **Space** to pause and resume. Reset returns to start positions, default sensor values and time 0. |
-| Inspect the output | The bottom panel shows every event. You can filter by kind or entity. **{}** shows the raw JSON lines that the sinks write. |
-| Play a scene | **Scenes** at the top right: **Play** / **Stop**. While it plays, each track shows what it waits on, and the toolbar shows the scene and its iteration. Pause and Reset apply to the scene too, and manual control still works. |
-| Switch scenario | **Open** (the picker starts in `scenarios/`). **Reload** re-reads the current file. |
 
 ## Architecture
 
 ```
 shopfloor/
-  sim/          shopfloor-sim: the engine (pure Rust, no Tauri). Tests live here.
-  cli/          shopfloor-cli: the headless `shopfloor` command
-  src-tauri/    shopfloor-gui: thin Tauri shell (commands + event bridge)
-  src/          React UI: draws state, sends commands
-  scenarios/    layout files (TOML)
+  sim/          shopfloor-sim: the engine (pure Rust). Tests live here.
+  cli/          shopfloor-cli: the `shopfloor` command (runs scenarios without Liminal)
+  scenarios/    scenario files (TOML)
   docs/         design notes
+
+src/processors/input/shopfloor.rs      Liminal's `shopfloor` input (embeds the engine)
+gui/src/components/shopfloor/          GUI: the floor in the node, the inspector controls
 ```
 
 ```
-React UI ── invoke("send_command", {move_to …}) ──► SimRuntime (tokio task owning the Engine)
-   ▲                                                   │  ticks every sim.tick_ms
-   │  "shopfloor://state"  (~30 Hz, WorldState)  ◄─────┤  watch channel
-   │  "shopfloor://events" (every 100 ms, batch)  ◄────┤  broadcast channel ──► sinks (stdout, jsonl; own threads)
+liminal process                                                    Liminal GUI
+  shopfloor input: Engine (+ autoplay scene)                         canvas node draws the floor
+    ├─ each event ──► message on its output channel ──► pipeline       inspector: scenes / MMs / sensors
+    ├─ world snapshot (~10 Hz) ──► runtime event "processor_view" ──► (stderr) ──► node + inspector
+    └─ handle_command ◄── stage command channel ◄── --commands stdin ◄── send_stage_command
 ```
+
+Two generic Liminal mechanisms make this work, and any processor can use them:
+- **Processor views:** `ProcessingContext::emit_view(json)` publishes a `processor_view` runtime event.
+- **Stage commands:** a processor that returns `true` from `accepts_commands` gets `handle_command` calls. Its stage
+  receives them from `--commands stdin` lines. A refused command becomes a `command_rejected` runtime event.
+
+The standalone pieces still work on their own:
 
 - **`Engine`** ([sim/src/engine.rs](sim/src/engine.rs)) is synchronous and deterministic.
   - It changes only through `apply(command)` and `step()`. One step is one fixed tick of sim time.
@@ -116,8 +157,8 @@ React UI ── invoke("send_command", {move_to …}) ──► SimRuntime (toki
   - So a scene pauses, resets and runs fast together with the world, and is deterministic.
 - **Path planning** sits behind `trait PathPlanner` ([sim/src/motion.rs](sim/src/motion.rs)). The default,
   `StraightLine`, ignores obstacles.
-- **`SimRuntime`** ([sim/src/runtime.rs](sim/src/runtime.rs)) drives an engine in real time and fans out events.
-  Loading a scenario starts a fresh runtime.
+- **`SimRuntime`** ([sim/src/runtime.rs](sim/src/runtime.rs)) drives an engine in real time and fans out events to
+  sinks. The `shopfloor` CLI uses it; Liminal's input steps the engine itself.
 - **Sinks** ([sim/src/sinks/](sim/src/sinks/)) each run on their own thread. A slow sink skips batches with a warning
   instead of slowing the simulation.
 - **Headless runs** use the same `SimRuntime` in real time. `--fast` runs use
@@ -241,7 +282,7 @@ is a ready-made pipeline:
 - it logs both to the console.
 
 ```bash
-# terminal 1: shopfloor (or the app, playing a scene)
+# terminal 1: shopfloor
 cd shopfloor && cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production
 # terminal 2: Liminal (or open the config in the Liminal GUI and press Run)
 cargo run -- --config config/examples/config_shopfloor_tcp.toml
@@ -253,11 +294,9 @@ How the link behaves:
     harmless.
   - Shopfloor accepts any number of clients and drops ones that disconnect.
   - Events sent while nothing is connected are not kept, so Liminal only sees what happens after it connects.
-- **Connection status:** in the app, the toolbar's `liminal` badge shows a green dot and the client count while
-  Liminal is connected. The CLI logs connects and disconnects.
-- **One process per port:** only one process can listen on a port. The app and a real-time CLI run of the default
-  scenario can't both run at once; the second fails with "Failed to listen on 127.0.0.1:9000". Change `bind` (or use
-  `--tcp`) to run both.
+- **Connection status:** the CLI logs each connect and disconnect.
+- **One process per port:** only one process can listen on a port, so two real-time CLI runs of the default scenario
+  can't run at once; the second fails with "Failed to listen on 127.0.0.1:9000". Change `bind` (or use `--tcp`).
 - **Framing:** each event is a 4-byte big-endian length followed by its JSON. A batch goes out in a single write, so
   frames arrive whole.
   - Liminal's `tcp_input` can lose its place in the stream if a frame is ever split across its 100 ms read timeout
@@ -320,17 +359,17 @@ Notes for Liminal pipelines:
   1. Add a `SinkKind` variant in [sim/src/scenario.rs](sim/src/scenario.rs).
   2. Implement `EventSink` in `sim/src/sinks/`.
   3. Construct it in `build_sink`.
-  4. Mirror it in `SinkDef` in [src/types.ts](src/types.ts) and give it an icon in the toolbar.
+  4. If it should show in `shopfloor check`, describe it in `describe_sink` ([cli/src/main.rs](cli/src/main.rs)).
 - **New MM action** (e.g. `weld`): no code needed. Add `[actions.weld]` to the scenario, and optionally list it in an
   MM's `actions`.
 - **New command:**
   1. Add a `SimCommand` variant.
   2. Handle it in `Engine::apply`, emitting an event if it changes the world.
-  3. Mirror it in `types.ts`.
+  3. Mirror it in `SimCommand` in the GUI's [shopfloor/types.ts](../gui/src/components/shopfloor/types.ts).
 - **New event kind:**
   1. Add an `EventBody` variant with a golden test.
-  2. Update the `types.ts` union, `EVENT_KINDS`, `KIND_LABELS` / `describeEvent` in [src/format.ts](src/format.ts),
-     and the `--kind-*` colour in `styles.css`.
+  2. Mirror it in the `SimEvent` union in the GUI's
+     [shopfloor/types.ts](../gui/src/components/shopfloor/types.ts) (and `describeEvent` in `format.ts`).
 - **New scene step:**
   1. Add a `StepSpec` variant and resolve it in `resolve_step` ([sim/src/scene.rs](sim/src/scene.rs)).
   2. If it is a new kind of wait, add a `Wait` variant and check it in `Engine::run_scene`.
@@ -343,5 +382,6 @@ Notes for Liminal pipelines:
   - richer scenes: steps triggered by other events, sensor ramps, labelled markers, random variation;
   - obstacle-avoiding planner;
   - lidar computed from the layout;
-  - in-app layout editing;
+  - layout editing in the GUI;
+  - an Esc shortcut to deselect the MM on the canvas;
   - MQTT sink.

@@ -9,6 +9,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 liminal = { path = "../.." }
+shopfloor-sim = { path = "../../shopfloor/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }

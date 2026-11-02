@@ -1,5 +1,6 @@
 use super::channel::PubSubChannel;
 use super::channel::Subscriber;
+use super::commands::{COMMAND_CHANNEL_CAPACITY, CommandReceiver, CommandSender};
 use super::context::ProcessingContext;
 use super::message::Message;
 use super::runtime_event::{RuntimeEvent, RuntimeEventKind};
@@ -52,6 +53,7 @@ pub struct Stage {
     processor: Box<dyn Processor>,
     context: ProcessingContext,
     control_channel: Option<tokio::sync::broadcast::Receiver<ControlMessage>>,
+    commands: Option<CommandReceiver>,
     observer: SharedRuntimeObserver,
 }
 
@@ -71,8 +73,19 @@ impl Stage {
             processor,
             context,
             control_channel: control_channel,
+            commands: None,
             observer: noop_runtime_observer(),
         }
+    }
+
+    /// Opens this stage's command channel if its processor accepts commands.
+    pub fn open_command_channel(&mut self) -> Option<CommandSender> {
+        if !self.processor.accepts_commands() {
+            return None;
+        }
+        let (sender, receiver) = tokio::sync::mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+        self.commands = Some(receiver);
+        Some(sender)
     }
 
     pub fn name(&self) -> &str {
@@ -113,7 +126,7 @@ impl Stage {
         );
 
         loop {
-            tokio::select! {
+            let command = tokio::select! {
                 // Handle control messages
                 Some(message) = async {
                     if let Some(control_channel) = &mut self.control_channel {
@@ -130,6 +143,14 @@ impl Stage {
                     }
                 }
 
+                // Commands for this stage (only if its processor accepts them)
+                Some(command) = async {
+                    match &mut self.commands {
+                        Some(commands) => commands.recv().await,
+                        None => None,
+                    }
+                } => Some(command),
+
                 // Process messages
                 result = self.processor.process(&mut self.context) => {
                     // Handle the result of the processor
@@ -143,10 +164,126 @@ impl Stage {
                         );
                         return Err(e);
                     }
+                    None
                 }
+            };
+
+            // Handled outside `select!` so `process` is no longer borrowed.
+            if let Some(command) = command
+                && let Err(error) = self
+                    .processor
+                    .handle_command(command, &mut self.context)
+                    .await
+            {
+                tracing::warn!("Stage '{}' rejected a command: {:#}", self.name, error);
+                self.observer.emit(
+                    RuntimeEvent::new(RuntimeEventKind::CommandRejected)
+                        .stage(self.name.clone())
+                        .processor_type(self.processor_type.clone())
+                        .text(format!("{error:#}")),
+                );
             }
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::runtime_observer::tests::RecordingRuntimeObserver;
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    /// Counts `process` calls and records commands; rejects `{"bad": true}`.
+    struct Interactive {
+        accepts: bool,
+        processed: Arc<Mutex<u32>>,
+        commands: Arc<Mutex<Vec<serde_json::Value>>>,
+    }
+
+    #[async_trait]
+    impl Processor for Interactive {
+        async fn init(&mut self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn process(&mut self, _context: &mut ProcessingContext) -> anyhow::Result<()> {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            *self.processed.lock().unwrap() += 1;
+            Ok(())
+        }
+
+        fn accepts_commands(&self) -> bool {
+            self.accepts
+        }
+
+        async fn handle_command(
+            &mut self,
+            command: serde_json::Value,
+            _context: &mut ProcessingContext,
+        ) -> anyhow::Result<()> {
+            if command == serde_json::json!({"bad": true}) {
+                anyhow::bail!("bad command");
+            }
+            self.commands.lock().unwrap().push(command);
+            Ok(())
+        }
+    }
+
+    type Recorded = (Arc<Mutex<u32>>, Arc<Mutex<Vec<serde_json::Value>>>);
+
+    fn stage(accepts: bool) -> (Stage, Recorded) {
+        let processed = Arc::new(Mutex::new(0));
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let processor = Interactive {
+            accepts,
+            processed: processed.clone(),
+            commands: commands.clone(),
+        };
+        let stage = Stage::new("floor".into(), "interactive".into(), Box::new(processor), None);
+        (stage, (processed, commands))
+    }
+
+    #[tokio::test]
+    async fn only_stages_whose_processor_accepts_commands_get_a_channel() {
+        let (mut plain, _) = stage(false);
+        assert!(plain.open_command_channel().is_none());
+        let (mut interactive, _) = stage(true);
+        assert!(interactive.open_command_channel().is_some());
+    }
+
+    #[tokio::test]
+    async fn commands_reach_the_processor_and_rejections_do_not_stop_the_stage() {
+        let (mut stage, (processed, commands)) = stage(true);
+        let observer = Arc::new(RecordingRuntimeObserver::default());
+        stage.set_observer(observer.clone());
+        let sender = stage.open_command_channel().unwrap();
+        let (control, receiver) = tokio::sync::broadcast::channel(4);
+        stage.attach_control_channel(receiver);
+        let running = tokio::spawn(async move { stage.run().await });
+
+        sender.send(serde_json::json!({"move": 1})).await.unwrap();
+        sender.send(serde_json::json!({"bad": true})).await.unwrap();
+        sender.send(serde_json::json!({"move": 2})).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        control.send(ControlMessage::Terminate).unwrap();
+        running.await.unwrap().unwrap();
+
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![serde_json::json!({"move": 1}), serde_json::json!({"move": 2})]
+        );
+        assert!(*processed.lock().unwrap() > 1, "processing continued around the commands");
+        let rejected: Vec<RuntimeEvent> = observer
+            .events()
+            .into_iter()
+            .filter(|event| event.kind == RuntimeEventKind::CommandRejected)
+            .collect();
+        assert_eq!(rejected.len(), 1);
+        assert_eq!(rejected[0].stage_id.as_deref(), Some("floor"));
+        assert_eq!(rejected[0].text.as_deref(), Some("bad command"));
     }
 }

@@ -13,6 +13,9 @@ pub struct RuntimeEvent {
     pub processor_type: Option<String>,
     pub channel_name: Option<String>,
     pub text: Option<String>,
+    /// Structured payload, e.g. a processor's view for the GUI. Omitted from JSON when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -27,6 +30,10 @@ pub enum RuntimeEventKind {
     MessageReceived,
     MessageEmitted,
     ProcessorError,
+    /// A processor published a snapshot of its state for the GUI (in `data`).
+    ProcessorView,
+    /// A stage rejected a command sent to it (reason in `text`); the stage keeps running.
+    CommandRejected,
 }
 
 impl RuntimeEvent {
@@ -39,6 +46,7 @@ impl RuntimeEvent {
             processor_type: None,
             channel_name: None,
             text: None,
+            data: None,
         }
     }
 
@@ -59,6 +67,11 @@ impl RuntimeEvent {
 
     pub fn text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
+        self
+    }
+
+    pub fn data(mut self, data: serde_json::Value) -> Self {
+        self.data = Some(data);
         self
     }
 }
@@ -84,6 +97,7 @@ mod tests {
             processor_type: Some("mqtt_sub".to_string()),
             channel_name: Some("raw".to_string()),
             text: None,
+            data: None,
         };
 
         let json = serde_json::to_string(&event).expect("event serializes");
@@ -91,5 +105,16 @@ mod tests {
         assert!(json.contains("\"kind\":\"stage_running\""));
         assert!(json.contains("\"stage_id\":\"sensor\""));
         assert!(json.contains("\"channel_name\":\"raw\""));
+        assert!(!json.contains("data"), "no data field unless set: {json}");
+    }
+
+    #[test]
+    fn processor_views_carry_data() {
+        let event = RuntimeEvent::new(RuntimeEventKind::ProcessorView)
+            .stage("floor")
+            .data(serde_json::json!({"state": {"sim_ms": 20}}));
+        let json = serde_json::to_string(&event).expect("event serializes");
+        assert!(json.contains("\"kind\":\"processor_view\""));
+        assert!(json.contains("\"data\":{\"state\":{\"sim_ms\":20}}"));
     }
 }

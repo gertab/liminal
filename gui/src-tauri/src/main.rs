@@ -13,7 +13,10 @@ use commands::files::{
     list_workspace_configs, load_config_text, load_graph, pick_config_file, pick_save_config_path,
     pick_workspace_folder, save_config_as, save_config_text,
 };
-use commands::runtime::{pipeline_runtime_state, start_pipeline, stop_pipeline, PipelineRuntime};
+use commands::runtime::{
+    pipeline_runtime_state, send_stage_command, start_pipeline, stop_pipeline, PipelineRuntime,
+};
+use commands::shopfloor::load_shopfloor_scenario;
 
 #[cfg(test)]
 use commands::runtime::preflight_processors;
@@ -47,6 +50,8 @@ fn main() {
             start_pipeline,
             stop_pipeline,
             pipeline_runtime_state,
+            send_stage_command,
+            load_shopfloor_scenario,
             list_workspace_configs,
             pick_config_file,
             pick_workspace_folder,
@@ -901,5 +906,46 @@ inputs = ["raw_data"]
             std::process::id(),
             nanos
         ))
+    }
+
+    #[test]
+    fn shopfloor_example_passes_preflight() {
+        let config = load_config(Path::new("../../config/examples/config_shopfloor.toml"))
+            .expect("shopfloor example loads");
+        liminal::config::validate_config(&config).expect("shopfloor example is valid");
+        // Construction doesn't read the scenario (that happens in `init`, in the pipeline's
+        // working directory), so preflight works from the GUI's own working directory.
+        preflight_processors(&config).expect("shopfloor example passes preflight");
+    }
+
+    #[test]
+    fn shopfloor_layout_loads_the_bundled_scenario() {
+        let path = crate::commands::shopfloor::resolve_scenario_path("shopfloor/scenarios/default.toml");
+        assert!(path.is_absolute());
+        let layout = crate::commands::shopfloor::load_layout(&path).expect("default scenario loads");
+        let json = serde_json::to_value(&layout).expect("layout serialises");
+        assert_eq!(json["scenario"]["mobile_manipulators"][0]["id"], "mm1");
+        assert_eq!(json["state"]["mobile_manipulators"][0]["id"], "mm1");
+        assert_eq!(json["state"]["sim_ms"], 0);
+
+        let missing = crate::commands::shopfloor::load_layout(Path::new("/nope/missing.toml"))
+            .err()
+            .expect("missing scenario is an error");
+        assert!(missing.contains("/nope/missing.toml"), "{missing}");
+    }
+
+    #[test]
+    fn stage_commands_are_written_as_json_lines() {
+        let mut written = Vec::new();
+        crate::commands::runtime::write_stage_command(
+            &mut written,
+            "floor",
+            serde_json::json!({"control": "pause"}),
+        )
+        .expect("write succeeds");
+        assert_eq!(
+            String::from_utf8(written).unwrap(),
+            "{\"command\":{\"control\":\"pause\"},\"stage\":\"floor\"}\n"
+        );
     }
 }

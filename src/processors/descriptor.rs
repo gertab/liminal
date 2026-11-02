@@ -136,6 +136,43 @@ pub fn processor_descriptors() -> Vec<ProcessorDescriptor> {
             ],
         },
         ProcessorDescriptor {
+            type_name: "shopfloor".to_string(),
+            category: ProcessorCategory::Input,
+            display_name: "Shopfloor".to_string(),
+            description: "Simulated shopfloor (machines, mobile manipulators, sensors, scenes). \
+                          Drawn live on the canvas and controlled from the inspector."
+                .to_string(),
+            fields: vec![
+                field(
+                    "scenario",
+                    "Scenario",
+                    FieldKind::String,
+                    true,
+                    Some("shopfloor/scenarios/default.toml"),
+                    &[],
+                    "Scenario file (layout, sensors, actions, scenes), relative to the working directory.",
+                ),
+                field(
+                    "scene",
+                    "Autoplay scene",
+                    FieldKind::String,
+                    false,
+                    Some("production"),
+                    &[],
+                    "Scene to play as soon as the pipeline starts. Leave empty for none.",
+                ),
+                field(
+                    "view_interval_ms",
+                    "View interval",
+                    FieldKind::Integer,
+                    false,
+                    Some("100"),
+                    &[],
+                    "How often the live floor is sent to the GUI, in milliseconds.",
+                ),
+            ],
+        },
+        ProcessorDescriptor {
             type_name: "mqtt_sub".to_string(),
             category: ProcessorCategory::Input,
             display_name: "MQTT Subscriber".to_string(),
@@ -826,6 +863,7 @@ mod tests {
                 "mqtt_pub",
                 "mqtt_sub",
                 "rule",
+                "shopfloor",
                 "simulated",
                 "tcp_input",
                 "tcp_output",

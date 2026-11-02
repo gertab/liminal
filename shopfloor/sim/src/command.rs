@@ -66,6 +66,16 @@ pub enum Control {
     StopScene,
 }
 
+/// Anything a client (e.g. the Liminal GUI) can ask a running simulation to do.
+/// JSON: `{"command": {"type": "move_to", …}}` or `{"control": "pause"}` /
+/// `{"control": {"play_scene": "production"}}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Request {
+    Command(SimCommand),
+    Control(Control),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +120,25 @@ mod tests {
             serde_json::to_value(&perform).unwrap(),
             json!({"type": "perform", "mm": "mm1", "action": "pick"})
         );
+    }
+
+    #[test]
+    fn requests_wrap_commands_and_controls() {
+        let request: Request = serde_json::from_value(json!({
+            "command": {"type": "perform", "mm": "mm1", "action": "pick"}
+        }))
+        .unwrap();
+        assert_eq!(
+            request,
+            Request::Command(SimCommand::Perform {
+                mm: "mm1".into(),
+                action: "pick".into()
+            })
+        );
+        let request: Request =
+            serde_json::from_value(json!({"control": {"play_scene": "production"}})).unwrap();
+        assert_eq!(request, Request::Control(Control::PlayScene("production".into())));
+        assert!(serde_json::from_value::<Request>(json!({"teleport": {}})).is_err());
     }
 
     #[test]

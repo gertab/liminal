@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod commands;
 pub mod context;
 pub mod input_poll;
 pub mod message;

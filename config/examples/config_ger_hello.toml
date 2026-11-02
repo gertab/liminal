@@ -1,0 +1,11 @@
+# the smallest useful pipeline. One source, one sink.
+[inputs.thermometer]
+type = "simulated"
+output = "temps"
+parameters = { field_out = "temperature", distribution = "normal", min_value = 10.0, max_value = 30.0, interval_ms = 500 }
+
+[outputs]
+
+[outputs.consoleeeeeeee]
+type = "console"
+inputs = ["temps"]

@@ -1,0 +1,624 @@
+
+/* --- Shopfloor input: floor drawing and controls (moved from the standalone shopfloor app).
+   Everything is scoped under .shopfloor-scope; colour tokens are defined on the scope. --- */
+
+.shopfloor-scope .sf-panel h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+
+.shopfloor-scope .sf-panel h3 {
+  font-size: 12px;
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.shopfloor-scope .sf-muted {
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .sf-small {
+  font-size: 11px;
+}
+
+.shopfloor-scope {
+  --bg: #090d0f;
+  --bg-elevated: #10171a;
+  --bg-panel: #0d1315;
+  --bg-input: #141d20;
+  --border: #1f2b2e;
+  --border-strong: #2c3c40;
+  --text: #dbe7e4;
+  --text-muted: #7f918d;
+  --accent: #53c7b6;
+  --accent-soft: rgba(83, 199, 182, 0.14);
+  --danger: #ef6b6b;
+  --warning: #f2b84b;
+
+  --floor: #0f1719;
+  --floor-grid: rgba(219, 231, 228, 0.06);
+  --machine: #1b2629;
+  --machine-border: #3a4d52;
+
+  --kind-position: #6aa9ff;
+  --kind-move_command: #f2b84b;
+  --kind-arrived: #53c7b6;
+  --kind-stopped: #ef6b6b;
+  --kind-sensor: #b48cff;
+  --kind-sensor_set: #ff8fc7;
+  --kind-action: #9ad86b;
+  --kind-scene: #5fd4ff;
+  --kind-sim: #9aa7a5;
+
+}
+
+.shopfloor-scope .sf-muted {
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .sf-small {
+  font-size: 11px;
+}
+
+.shopfloor-scope .floor-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+}
+
+.shopfloor-scope .floor-svg text {
+  pointer-events: none;
+}
+
+.shopfloor-scope .hit-area {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.shopfloor-scope .floor-svg.is-targeting .floor {
+  cursor: crosshair;
+}
+
+.shopfloor-scope .floor {
+  fill: var(--floor);
+  stroke: var(--border-strong);
+  stroke-width: 0.06;
+}
+
+.shopfloor-scope .floor-grid line {
+  stroke: var(--floor-grid);
+  stroke-width: 0.02;
+}
+
+.shopfloor-scope .axis-label {
+  fill: var(--text-muted);
+  font-size: 0.3px;
+}
+
+.shopfloor-scope .machine {
+  cursor: pointer;
+}
+
+.shopfloor-scope .machine-body {
+  fill: var(--machine);
+  stroke: var(--machine-border);
+  stroke-width: 0.05;
+}
+
+.shopfloor-scope .machine:hover .machine-body,
+.shopfloor-scope .machine.is-focused .machine-body {
+  stroke: var(--accent);
+}
+
+.shopfloor-scope .machine.is-targetable:hover .machine-body {
+  fill: rgba(83, 199, 182, 0.12);
+}
+
+.shopfloor-scope .machine-label {
+  fill: var(--text);
+  font-size: 0.38px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.shopfloor-scope .dock-link {
+  stroke: var(--machine-border);
+  stroke-width: 0.03;
+  stroke-dasharray: 0.1 0.1;
+}
+
+.shopfloor-scope .dock-marker {
+  fill: var(--floor);
+  stroke: var(--machine-border);
+  stroke-width: 0.04;
+}
+
+.shopfloor-scope .sensor-readout {
+  fill: var(--kind-sensor);
+  font-size: 0.28px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.shopfloor-scope .sensor-readout-line {
+  cursor: pointer;
+}
+
+.shopfloor-scope .sensor-readout-line:hover .sensor-readout,
+.shopfloor-scope .sensor-readout-line.is-focused .sensor-readout,
+.shopfloor-scope .floor-sensor:hover .sensor-readout,
+.shopfloor-scope .floor-sensor.is-focused .sensor-readout {
+  fill: #e0cfff;
+  text-decoration: underline;
+}
+
+.shopfloor-scope .mm-body {
+  cursor: pointer;
+}
+
+.shopfloor-scope .mm-base {
+  fill: currentColor;
+  fill-opacity: 0.25;
+  stroke: currentColor;
+  stroke-width: 0.06;
+}
+
+.shopfloor-scope .mm-heading {
+  fill: currentColor;
+}
+
+.shopfloor-scope .mm-selection {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.05;
+  stroke-dasharray: 0.12 0.08;
+}
+
+.shopfloor-scope .mm.is-selected .mm-base {
+  fill-opacity: 0.45;
+}
+
+.shopfloor-scope .mm-label {
+  fill: currentColor;
+  font-size: 0.34px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.shopfloor-scope .mm-route line,
+.shopfloor-scope .mm-route path {
+  stroke: currentColor;
+  stroke-width: 0.04;
+  stroke-dasharray: 0.15 0.1;
+  fill: none;
+  pointer-events: none;
+}
+
+.shopfloor-scope .floor-sensor {
+  cursor: pointer;
+}
+
+.shopfloor-scope .floor-sensor-marker {
+  fill: rgba(180, 140, 255, 0.25);
+  stroke: var(--kind-sensor);
+  stroke-width: 0.05;
+}
+
+.shopfloor-scope .floor-sensor:hover .floor-sensor-marker,
+.shopfloor-scope .floor-sensor.is-focused .floor-sensor-marker {
+  fill: rgba(180, 140, 255, 0.55);
+}
+
+.shopfloor-scope .floor-sensor-label {
+  fill: var(--text-muted);
+  font-size: 0.28px;
+  pointer-events: none;
+}
+
+.shopfloor-scope .action-flash {
+  fill: var(--kind-action);
+  font-size: 0.36px;
+  font-weight: 700;
+  pointer-events: none;
+  animation: action-flash 1.8s ease-out forwards;
+}
+
+@keyframes action-flash {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-0.5px);
+  }
+}
+
+.shopfloor-scope .ghost-target {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 0.04;
+  stroke-dasharray: 0.1 0.08;
+  pointer-events: none;
+}
+
+.shopfloor-scope .panel-section {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.shopfloor-scope .panel-section h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.shopfloor-scope .sf-hint {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.shopfloor-scope .scene-card {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+}
+
+.shopfloor-scope .scene-card.is-playing {
+  border-color: var(--kind-scene);
+  border-left-color: var(--kind-scene);
+}
+
+.shopfloor-scope .scene-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.shopfloor-scope .scene-header .chip-button {
+  margin-left: auto;
+}
+
+.shopfloor-scope .scene-repeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .chip-button.scene-play:hover:not(:disabled) {
+  border-color: var(--kind-scene);
+  color: var(--kind-scene);
+}
+
+.shopfloor-scope .scene-tracks {
+  display: grid;
+  gap: 3px;
+}
+
+.shopfloor-scope .scene-track {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) 36px minmax(0, 1.6fr);
+  gap: 6px;
+  font-size: 12px;
+}
+
+.shopfloor-scope .scene-track-name,
+.shopfloor-scope .scene-track-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shopfloor-scope .scene-track-step {
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.shopfloor-scope .scene-track-current {
+  color: var(--kind-scene);
+}
+
+.shopfloor-scope .scene-track.is-done .scene-track-current {
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .mm-card {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+
+.shopfloor-scope .mm-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.shopfloor-scope .mm-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shopfloor-scope .mm-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.shopfloor-scope .mm-state {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .mm-state.is-moving {
+  color: var(--warning);
+}
+
+.shopfloor-scope .mm-status {
+  margin: 4px 0 2px;
+}
+
+.shopfloor-scope .mm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  cursor: default;
+}
+
+.shopfloor-scope .chip-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-input);
+  font-size: 11px;
+}
+
+.shopfloor-scope .chip-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.shopfloor-scope .chip-button.sf-action:hover:not(:disabled) {
+  border-color: var(--kind-action);
+  color: var(--kind-action);
+}
+
+.shopfloor-scope .last-action {
+  margin-top: 5px;
+}
+
+.shopfloor-scope .chip-button.sf-danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.shopfloor-scope .sensor-group {
+  margin-bottom: 12px;
+}
+
+.shopfloor-scope .sensor-group h3 {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.shopfloor-scope .sensor-control {
+  padding: 7px 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+}
+
+.shopfloor-scope .sensor-control.is-highlighted {
+  border-color: var(--border-strong);
+}
+
+.shopfloor-scope .sensor-control.is-focused {
+  border-color: var(--kind-sensor);
+  box-shadow: 0 0 0 1px var(--kind-sensor) inset;
+}
+
+.shopfloor-scope .sensor-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.shopfloor-scope .sensor-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shopfloor-scope .sensor-kind {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .sensor-reading {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--kind-sensor);
+}
+
+.shopfloor-scope .sensor-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.shopfloor-scope .sensor-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.shopfloor-scope .sensor-row.sf-small {
+  justify-content: space-between;
+}
+
+.shopfloor-scope .number-input {
+  width: 72px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-input);
+}
+
+.shopfloor-scope .number-input.sf-small {
+  width: 58px;
+  height: 20px;
+  font-size: 11px;
+}
+
+.shopfloor-scope .noise-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shopfloor-scope .sf-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.shopfloor-scope .sf-icon-button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.shopfloor-scope .sf-icon-button.is-active {
+  color: var(--accent);
+}
+
+/* --- Integration in the Liminal GUI ------------------------------------------------------- */
+
+/* While an MM is selected, a click anywhere on a machine sends it there: the sensor readings
+   drawn inside the machine stop catching clicks. */
+.shopfloor-scope .floor-svg.is-targeting .machine .hit-area {
+  pointer-events: none;
+}
+
+.shopfloor-scope button,
+.shopfloor-scope input,
+.shopfloor-scope select {
+  font: inherit;
+  color: inherit;
+}
+
+.shopfloor-scope button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* The canvas node of a shopfloor input is wider than other nodes and contains the floor. */
+.liminal-node.shopfloor-node {
+  width: 560px;
+}
+
+.shopfloor-node-floor {
+  margin-top: 8px;
+  border: 1px solid var(--border, #1f2b2e);
+  border-radius: 6px;
+  background: var(--floor, #0f1719);
+  cursor: default;
+}
+
+.shopfloor-node-canvas {
+  padding: 4px;
+}
+
+.shopfloor-node-status {
+  padding: 3px 8px 5px;
+  border-top: 1px solid var(--border, #1f2b2e);
+  color: var(--text-muted, #7f918d);
+  font-size: 11px;
+}
+
+.shopfloor-node-message {
+  padding: 18px 12px;
+  color: #7f918d;
+  font-size: 12px;
+}
+
+.shopfloor-node-message.is-error,
+.shopfloor-inspector-message.is-error {
+  color: #ef6b6b;
+}
+
+.shopfloor-inspector-message {
+  margin: 0;
+  color: #7f918d;
+  font-size: 12px;
+}
+
+.shopfloor-inspector {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.shopfloor-inspector-note {
+  margin: 0 0 10px;
+}
+
+.shopfloor-controls {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.shopfloor-controls:disabled {
+  opacity: 0.55;
+}
+
+.shopfloor-sim-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.shopfloor-sim-clock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.shopfloor-scope .sf-panel .panel-section {
+  padding: 0 0 12px;
+  border-bottom: 0;
+}

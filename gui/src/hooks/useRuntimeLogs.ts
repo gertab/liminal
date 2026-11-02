@@ -67,6 +67,9 @@ export function useRuntimeLogs({
   );
   const [runtimeLastMessageActivity, setRuntimeLastMessageActivity] =
     useState<RuntimeMessageActivity>(emptyRuntimeMessageActivity);
+  // Latest `processor_view` per stage (e.g. the live shopfloor). Kept after the pipeline stops so
+  // the last frame stays visible; replaced when the next run publishes.
+  const [runtimeProcessorViews, setRuntimeProcessorViews] = useState<Record<string, unknown>>({});
   const [runtimeLogFilter, setRuntimeLogFilter] = useState<"all" | "selection">("all");
   const [runtimeContentFilter, setRuntimeContentFilter] = useState<RuntimeContentFilter>(
     defaultRuntimeContentFilter,
@@ -139,6 +142,19 @@ export function useRuntimeLogs({
       "pipeline://runtime-event",
       (event) => {
         if (!disposed) {
+          const runtimeEvent = event.payload.event;
+          // Views arrive ~10 times a second: keep only the latest per stage, and keep them out
+          // of the event list, the console and the counters.
+          if (runtimeEvent.kind === "processor_view") {
+            const stageId = runtimeEvent.stage_id;
+            if (stageId) {
+              setRuntimeProcessorViews((views) => ({ ...views, [stageId]: runtimeEvent.data }));
+            }
+            return;
+          }
+          if (runtimeEvent.kind === "command_rejected") {
+            onError(`${runtimeEvent.stage_id ?? "stage"}: ${runtimeEvent.text ?? "command rejected"}`);
+          }
           if (
             !discardBackendLogsUntilNextRunRef.current &&
             event.payload.emitted_at_ms > clearedAtMsRef.current
@@ -189,7 +205,7 @@ export function useRuntimeLogs({
       void unlistenState.then((unlisten) => unlisten());
       void unlistenRuntimeEvent.then((unlisten) => unlisten());
     };
-  }, [appendRuntimeLog]);
+  }, [appendRuntimeLog, onError]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -268,6 +284,7 @@ export function useRuntimeLogs({
     runtimeChannelCounters,
     runtimeMessageActivity,
     runtimeLastMessageActivity,
+    runtimeProcessorViews,
     runtimeLogFilter,
     runtimeContentFilter,
     setRuntimeLogFilter: changeRuntimeLogFilter,

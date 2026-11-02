@@ -1,6 +1,7 @@
 use super::registry::ChannelRegistry;
 use super::runtime_event::{RuntimeEvent, RuntimeEventKind};
 use super::runtime_observer::{SharedRuntimeObserver, noop_runtime_observer};
+use super::commands::CommandRouter;
 use super::stage::{ControlMessage, Stage, create_stage};
 use crate::config::{Config, StageConfig};
 use crate::core::channel::PubSubChannel;
@@ -28,6 +29,7 @@ pub struct PipelineManager {
     control_channel: Option<Arc<tokio::sync::broadcast::Sender<ControlMessage>>>,
     stage_handles: HashMap<String, tokio::task::JoinHandle<()>>,
     observer: SharedRuntimeObserver,
+    commands: CommandRouter,
 }
 
 impl PipelineManager {
@@ -49,6 +51,7 @@ impl PipelineManager {
             control_channel: None,
             stage_handles: HashMap::new(),
             observer: noop_runtime_observer(),
+            commands: CommandRouter::default(),
         }
     }
 
@@ -318,6 +321,11 @@ impl PipelineManager {
                         stage.attach_control_channel(control_channel.subscribe());
                     }
 
+                    // Stages that accept commands get their own command channel
+                    if let Some(sender) = stage.open_command_channel() {
+                        self.commands.insert(stage_name.clone(), sender);
+                    }
+
                     self.observer.emit(
                         RuntimeEvent::new(RuntimeEventKind::StageStarting)
                             .stage(stage_name.clone())
@@ -368,6 +376,11 @@ impl PipelineManager {
 
         // futures::future::pending().await;
         Ok(self)
+    }
+
+    /// Routes commands to the running stages that accept them (call after `start_all`).
+    pub fn command_router(&self) -> CommandRouter {
+        self.commands.clone()
     }
 
     /// Wait for all stages to complete and handle termination signals.

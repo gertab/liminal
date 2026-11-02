@@ -19,7 +19,7 @@ pub mod scenario;
 pub mod scene;
 pub mod sinks;
 
-pub use command::{CommandEnvelope, Control, Origin, SimCommand, Target};
+pub use command::{CommandEnvelope, Control, Origin, Request, SimCommand, Target};
 pub use engine::{Engine, WorldState};
 pub use event::{EventBody, SimEvent};
 pub use runtime::{EventBatch, SimRuntime};

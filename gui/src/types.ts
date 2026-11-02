@@ -124,7 +124,11 @@ export type RuntimeEventKind =
   | "stage_stopped"
   | "message_received"
   | "message_emitted"
-  | "processor_error";
+  | "processor_error"
+  /** A processor's snapshot for the GUI (in `data`), e.g. the live shopfloor. */
+  | "processor_view"
+  /** A stage refused a command sent to it (reason in `text`). */
+  | "command_rejected";
 
 export type RuntimeEvent = {
   id: number;
@@ -134,6 +138,7 @@ export type RuntimeEvent = {
   processor_type: string | null;
   channel_name: string | null;
   text: string | null;
+  data?: unknown;
 };
 
 export type RuntimeStageState = "starting" | "running" | "stopped" | "error";

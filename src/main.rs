@@ -46,6 +46,20 @@ struct Cli {
     /// Emit structured runtime events for integrations.
     #[arg(long, value_enum, default_value_t = RuntimeEventsMode::Off)]
     runtime_events: RuntimeEventsMode,
+
+    /// Accept commands for running stages, one JSON line each:
+    /// {"stage": "<name>", "command": {...}} (used by the GUI to drive interactive inputs).
+    #[arg(long, value_enum, default_value_t = CommandsMode::Off)]
+    commands: CommandsMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum CommandsMode {
+    /// Do not read commands.
+    Off,
+
+    /// Read command lines from stdin.
+    Stdin,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -137,6 +151,15 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    if cli.commands == CommandsMode::Stdin {
+        let router = pipeline_manager.command_router();
+        tracing::info!("Reading stage commands from stdin (stages: {:?})", router.stages());
+        tokio::spawn(core::commands::read_commands(
+            tokio::io::BufReader::new(tokio::io::stdin()),
+            router,
+        ));
+    }
 
     let _ = pipeline_manager.wait_for_all().await;
 

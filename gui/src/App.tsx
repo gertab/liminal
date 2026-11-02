@@ -8,6 +8,7 @@ import {
   KeyValue,
 } from "./components/inspector/InspectorPrimitives";
 import { InspectorPanel } from "./components/inspector/InspectorPanel";
+import { ShopfloorProvider } from "./components/shopfloor/ShopfloorContext";
 import { useRuntimeLogs } from "./hooks/useRuntimeLogs";
 import {
   ReactFlowProvider,
@@ -152,6 +153,7 @@ function App() {
     runtimeChannelCounters,
     runtimeMessageActivity,
     runtimeLastMessageActivity,
+    runtimeProcessorViews,
     runtimeLogFilter,
     runtimeContentFilter,
     setRuntimeLogFilter,
@@ -969,6 +971,12 @@ function App() {
 
   return (
     <ReactFlowProvider>
+      <ShopfloorProvider
+        graph={graph}
+        processorViews={runtimeProcessorViews}
+        runtimeState={runtimeState}
+        onError={setError}
+      >
       <div
         className={compactDensity ? "app-shell compact-density" : "app-shell"}
         style={{
@@ -1237,6 +1245,7 @@ function App() {
           />
         )}
       </div>
+      </ShopfloorProvider>
     </ReactFlowProvider>
   );
 }

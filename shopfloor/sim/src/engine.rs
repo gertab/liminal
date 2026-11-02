@@ -10,7 +10,7 @@
 //! Everything returns the [`SimEvent`]s it caused. Wall-clock time is passed in (`ts`) and only
 //! used to stamp events, so tests and faster-than-real-time runs behave identically.
 
-use crate::command::{CommandEnvelope, Control, Origin, SimCommand, Target};
+use crate::command::{CommandEnvelope, Control, Origin, Request, SimCommand, Target};
 use crate::event::{EventBody, Lifecycle, Place, SCHEMA_VERSION, SceneState, SimEvent};
 use crate::geometry::{Vec2, path_length, round_to};
 use crate::motion::{PathPlanner, StraightLine};
@@ -226,6 +226,19 @@ impl Engine {
             Control::StopScene => return Ok(self.stop_scene(ts)),
         };
         Ok(vec![self.event(ts, body)])
+    }
+
+    /// Executes a client request: a command (with `origin`) or an engine control.
+    pub fn request(
+        &mut self,
+        request: Request,
+        origin: Origin,
+        ts: u64,
+    ) -> anyhow::Result<Vec<SimEvent>> {
+        match request {
+            Request::Command(command) => self.apply(CommandEnvelope::new(origin, command), ts),
+            Request::Control(control) => self.control(control, ts),
+        }
     }
 
     /// Executes a command. On error nothing changes and no events are produced.

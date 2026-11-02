@@ -42,6 +42,17 @@ impl ProcessingContext {
         self.observer = observer;
     }
 
+    /// Publishes a snapshot of the processor's state for the GUI (a `processor_view` runtime
+    /// event, e.g. the live shopfloor). Only seen when runtime events are enabled.
+    pub fn emit_view(&self, view: serde_json::Value) {
+        self.observer.emit(
+            RuntimeEvent::new(RuntimeEventKind::ProcessorView)
+                .stage(self.stage_name.clone())
+                .processor_type(self.processor_type.clone())
+                .data(view),
+        );
+    }
+
     pub fn attach_output(&mut self, name: String, channel: Arc<dyn PubSubChannel<Message>>) {
         let channel = Arc::new(ObservedOutputChannel {
             inner: channel,

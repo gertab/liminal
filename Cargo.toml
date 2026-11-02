@@ -28,3 +28,4 @@ clap = { version = "4.5", features = ["derive"] }
 evalexpr = "12.0.2"
 regex = "1.11"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+shopfloor-sim = { path = "shopfloor/sim" }

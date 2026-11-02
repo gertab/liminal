@@ -3,9 +3,9 @@ use liminal::core::runtime_observer::RUNTIME_EVENT_PREFIX;
 use liminal::processors::create_processor;
 use serde::Serialize;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, State};
@@ -15,6 +15,8 @@ use crate::paths::{repo_root, resolve_config_path};
 #[derive(Clone, Default)]
 pub(crate) struct PipelineRuntime {
     process_id: Arc<StdMutex<Option<u32>>>,
+    /// The running pipeline's stdin, where stage commands are written (`--commands stdin`).
+    commands: Arc<StdMutex<Option<ChildStdin>>>,
 }
 
 struct RuntimeCommand {
@@ -80,6 +82,7 @@ pub(crate) fn start_pipeline(
     );
 
     let mut child = command
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -88,6 +91,9 @@ pub(crate) fn start_pipeline(
     let process_id = child.id();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    if let Ok(mut commands) = runtime.commands.lock() {
+        *commands = child.stdin.take();
+    }
 
     {
         let mut running_process = runtime
@@ -112,11 +118,15 @@ pub(crate) fn start_pipeline(
     }
 
     let runtime_process_id = runtime.process_id.clone();
+    let runtime_commands = runtime.commands.clone();
     std::thread::spawn(move || {
         let exit_result = child.wait();
         if let Ok(mut running_process) = runtime_process_id.lock() {
             if *running_process == Some(process_id) {
                 *running_process = None;
+                if let Ok(mut commands) = runtime_commands.lock() {
+                    *commands = None;
+                }
             }
         }
 
@@ -177,7 +187,39 @@ pub(crate) fn stop_pipeline(runtime: State<'_, PipelineRuntime>) -> Result<(), S
         return Ok(());
     };
 
+    if let Ok(mut commands) = runtime.commands.lock() {
+        *commands = None;
+    }
     terminate_process(process_id)
+}
+
+/// Sends a command to a running stage that accepts commands (e.g. the `shopfloor` input). The
+/// stage reports rejected commands as `command_rejected` runtime events.
+#[tauri::command]
+pub(crate) fn send_stage_command(
+    runtime: State<'_, PipelineRuntime>,
+    stage: String,
+    command: serde_json::Value,
+) -> Result<(), String> {
+    let mut commands = runtime
+        .commands
+        .lock()
+        .map_err(|_| "Pipeline runtime lock is poisoned".to_string())?;
+    let stdin = commands
+        .as_mut()
+        .ok_or_else(|| "The pipeline is not running.".to_string())?;
+    write_stage_command(stdin, &stage, command)
+        .map_err(|error| format!("Could not send the command to the pipeline: {error}"))
+}
+
+pub(crate) fn write_stage_command(
+    writer: &mut impl Write,
+    stage: &str,
+    command: serde_json::Value,
+) -> std::io::Result<()> {
+    let line = serde_json::json!({ "stage": stage, "command": command });
+    writeln!(writer, "{line}")?;
+    writer.flush()
 }
 
 #[tauri::command]
@@ -227,7 +269,9 @@ fn pipeline_command(config_path: &Path) -> Result<RuntimeCommand, String> {
         .arg("--config")
         .arg(config_path)
         .arg("--runtime-events")
-        .arg("jsonl");
+        .arg("jsonl")
+        .arg("--commands")
+        .arg("stdin");
     command.current_dir(repo_root());
     Ok(RuntimeCommand { command, launcher })
 }

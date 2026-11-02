@@ -1,4 +1,6 @@
 import { Info, Network, Trash2 } from "lucide-react";
+import { isShopfloorNode } from "../shopfloor/ShopfloorContext";
+import { ShopfloorInspector } from "../shopfloor/ShopfloorInspector";
 import { useCallback } from "react";
 import {
   ChannelButtonList,
@@ -233,6 +235,11 @@ function NodeInspector({
         </button>
       </div>
       {selectedDiagnostic && <SelectedDiagnostic diagnostic={selectedDiagnostic} />}
+      {isShopfloorNode(node) && (
+        <InspectorSection title="Shopfloor" defaultOpen>
+          <ShopfloorInspector node={node} />
+        </InspectorSection>
+      )}
       <NodeRuntimeSection
         node={node}
         runtimeSnapshot={runtimeSnapshot}

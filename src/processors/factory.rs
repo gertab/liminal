@@ -39,7 +39,9 @@
 use crate::processors::{
     Processor,
     aggregator::FusionStage,
-    input::{MqttInputProcessor, SimulatedSignalProcessor, TcpInputProcessor},
+    input::{
+        MqttInputProcessor, ShopfloorInputProcessor, SimulatedSignalProcessor, TcpInputProcessor,
+    },
     output::{
         ConsoleOutputProcessor, FileOutputProcessor, MqttOutputProcessor, TcpOutputProcessor,
     },
@@ -189,6 +191,7 @@ fn ensure_default_processors() {
         register_processor("tcp_input", Box::new(TcpInputProcessor::new));
         register_processor("tcp_output", Box::new(TcpOutputProcessor::new));
         register_processor("simulated", Box::new(SimulatedSignalProcessor::new));
+        register_processor("shopfloor", Box::new(ShopfloorInputProcessor::new));
         register_processor("rule", Box::new(RuleProcessor::new));
         register_processor("fusion", Box::new(FusionStage::new));
         register_processor("console", Box::new(ConsoleOutputProcessor::new));

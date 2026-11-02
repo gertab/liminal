@@ -20,6 +20,8 @@ import {
   useUpdateNodeInternals,
 } from "@xyflow/react";
 import { AlertCircle, CircleDot, Loader2, Play, RotateCcw, Square } from "lucide-react";
+import { isShopfloorNode } from "../shopfloor/ShopfloorContext";
+import { SHOPFLOOR_FLOOR_HEIGHT, ShopfloorNodeFloor } from "../shopfloor/ShopfloorNodeFloor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RuntimeConsole,
@@ -50,6 +52,7 @@ type FlowNodeData = {
   connectionState: "valid" | "invalid" | null;
   selectedChannelName: string | null;
   onSelectChannel: (channelName: string) => void;
+  onSelectNode: (nodeId: string) => void;
 };
 
 type FocusState = {
@@ -88,6 +91,8 @@ type FlowDebugSnapshot = {
 
 const laneTop = 24;
 const nodeGap = 96;
+/** `.liminal-node.shopfloor-node` is 560px wide instead of 280px. */
+const shopfloorNodeExtraWidth = 280;
 const layoutStoragePrefix = "liminal.layout.";
 const laneX: Record<GraphLane, number> = {
   inputs: 40,
@@ -314,6 +319,7 @@ export function GraphCanvas({
           connectionState,
           selectedChannelName,
           onSelectChannel,
+          onSelectNode,
         },
         className: [
           matches ? "" : "dimmed-node",
@@ -332,6 +338,7 @@ export function GraphCanvas({
     graph,
     connectionSourceNodeId,
     onSelectChannel,
+    onSelectNode,
     nodeDimensions,
     nodePositions,
     runtimeActivity,
@@ -763,6 +770,9 @@ export function GraphCanvas({
             onSelectNode(null);
           }}
           onlyRenderVisibleElements={false}
+          // Below React Flow's default 0.5 so "fit view" can show wide graphs (e.g. a shopfloor
+          // input) in a narrow canvas instead of clipping them.
+          minZoom={0.2}
           colorMode="dark"
           nodesDraggable
           nodesConnectable
@@ -919,6 +929,7 @@ function LiminalNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
     connectionState,
     selectedChannelName,
     onSelectChannel,
+    onSelectNode,
   } = data;
   const hasError = diagnostics.some((diagnostic) => diagnostic.severity === "error");
   const hasWarning = diagnostics.some((diagnostic) => diagnostic.severity === "warning");
@@ -926,6 +937,7 @@ function LiminalNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
   const className = [
     "liminal-node",
     graphNode.kind,
+    isShopfloorNode(graphNode) ? "shopfloor-node" : "",
     selected ? "selected" : "",
     connectionState === "valid" ? "connection-valid" : "",
     connectionState === "invalid" ? "connection-invalid" : "",
@@ -955,6 +967,7 @@ function LiminalNode({ data, selected }: NodeProps<Node<FlowNodeData>>) {
       </div>
       <strong>{graphNode.display_name}</strong>
       <p>{graphNode.config_path}</p>
+      {isShopfloorNode(graphNode) && <ShopfloorNodeFloor node={graphNode} onSelectNode={onSelectNode} />}
       <div className="node-channels">
         {graphNode.kind !== "input" && (
           <Handle
@@ -1566,6 +1579,10 @@ function layoutStorageKey(configPath: string) {
 
 function layoutNodePositions(nodes: GraphNode[], savedLayout: Record<string, LayoutPosition>) {
   const positions = new Map<string, { x: number; y: number }>();
+  // A shopfloor input is drawn wider than other nodes; shift the lanes to its right.
+  const laneShift = nodes.some((node) => node.lane === "inputs" && isShopfloorNode(node))
+    ? shopfloorNodeExtraWidth
+    : 0;
 
   (["inputs", "pipeline_stages", "outputs"] as GraphLane[]).forEach((lane) => {
     const laneNodes = nodes
@@ -1574,7 +1591,8 @@ function layoutNodePositions(nodes: GraphNode[], savedLayout: Record<string, Lay
     let y = laneTop;
 
     laneNodes.forEach((node) => {
-      positions.set(node.id, savedLayout[node.id] ?? { x: laneX[lane], y });
+      const x = laneX[lane] + (lane === "inputs" ? 0 : laneShift);
+      positions.set(node.id, savedLayout[node.id] ?? { x, y });
       y += estimatedNodeHeight(node) + nodeGap;
     });
   });
@@ -1588,5 +1606,6 @@ function estimatedNodeHeight(node: GraphNode) {
   const nameRows = Math.ceil(node.display_name.length / 26);
   const pathRows = Math.ceil(node.config_path.length / 38);
 
-  return Math.max(168, 104 + channelRows * 34 + nameRows * 22 + pathRows * 18);
+  const floorHeight = isShopfloorNode(node) ? SHOPFLOOR_FLOOR_HEIGHT + 40 : 0;
+  return Math.max(168, 104 + channelRows * 34 + nameRows * 22 + pathRows * 18) + floorHeight;
 }
