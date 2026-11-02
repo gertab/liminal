@@ -127,6 +127,69 @@ requires_machine = true
 [actions.inspect]
 label = "Inspect"                # anywhere, while stopped
 
+# --- Scenes (scripted runs: tracks run in parallel, steps within a track run in order) ---------
+#
+# Steps: move_to {mm, machine | point}, stop, perform {mm, action}, set_sensor {sensor, value},
+# set_sensor_noise {sensor, std}, wait_ms, wait_idle (until that MM has no move in progress).
+# An iteration ends when every track is done; `loop = true` or `repeat = N` runs it again.
+
+[scenes.production]
+label = "Production loop"
+loop = true
+
+[[scenes.production.tracks]]
+name = "mm1 shuttle"
+steps = [
+  { move_to = { mm = "mm1", machine = "machine2" } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "pick" } },
+  { wait_ms = 1500 },
+  { move_to = { mm = "mm1", machine = "machine3" } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "place" } },
+  { wait_ms = 1500 },
+  { move_to = { mm = "mm1", machine = "machine1" } },
+  { wait_idle = "mm1" },
+]
+
+[[scenes.production.tracks]]
+name = "mm2 patrol"
+steps = [
+  { move_to = { mm = "mm2", point = [10.0, 8.0] } },
+  { wait_idle = "mm2" },
+  { perform = { mm = "mm2", action = "inspect" } },
+  { wait_ms = 2000 },
+  { move_to = { mm = "mm2", point = [10.0, 5.0] } },
+  { wait_idle = "mm2" },
+  { perform = { mm = "mm2", action = "inspect" } },
+]
+
+[[scenes.production.tracks]]
+name = "mm1 vibration"
+steps = [
+  { wait_ms = 15000 },
+  { set_sensor = { sensor = "mm1.vibration", value = 1.2 } },
+  { wait_ms = 8000 },
+  { set_sensor = { sensor = "mm1.vibration", value = 0.1 } },
+]
+
+# mm1 picks a part at the Deflasher and carries it to the Stocker; on the way its vibration goes high.
+[scenes.vibration_fault]
+label = "MM1 vibration fault"
+
+[[scenes.vibration_fault.tracks]]
+steps = [
+  { move_to = { mm = "mm1", machine = "machine2" } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "pick" } },
+  { move_to = { mm = "mm1", machine = "machine3" } },
+  { wait_ms = 5000 },
+  { set_sensor = { sensor = "mm1.vibration", value = 1.5 } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "place" } },
+  { set_sensor = { sensor = "mm1.vibration", value = 0.1 } },
+]
+
 # --- Output -----------------------------------------------------------------------------------
 
 [output]

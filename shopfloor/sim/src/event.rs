@@ -94,6 +94,15 @@ pub enum EventBody {
     },
     /// Simulation lifecycle.
     Sim { state: Lifecycle, scenario: String },
+    /// Scene lifecycle. Commands a scene runs appear as their own events with `origin: "scene"`.
+    Scene {
+        scene: String,
+        state: SceneState,
+        /// 1-based iteration (scenes can loop or repeat).
+        iteration: u32,
+        /// Why the scene failed (only for `failed`).
+        error: Option<String>,
+    },
 }
 
 /// A point on the floor, with the machine it is docked at (if any).
@@ -102,6 +111,19 @@ pub struct Place {
     pub x: f64,
     pub y: f64,
     pub at: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SceneState {
+    Started,
+    /// A looping or repeating scene began its next iteration.
+    Restarted,
+    Finished,
+    /// Stopped by a `stop_scene`, a reset, or another scene being played.
+    Stopped,
+    /// A step was rejected (e.g. an action whose conditions didn't hold).
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +146,7 @@ impl SimEvent {
             EventBody::SensorSet { .. } => "sensor_set",
             EventBody::Action { .. } => "action",
             EventBody::Sim { .. } => "sim",
+            EventBody::Scene { .. } => "scene",
         }
     }
 }
@@ -275,6 +298,36 @@ mod tests {
                 },
             ),
             r#"{"v":1,"seq":88,"ts":1761730012300,"sim_ms":12300,"kind":"action","entity":"mm1","action":"pick","command_id":7,"x":10.0,"y":8.0,"at":"machine2","origin":"ui"}"#,
+        );
+    }
+
+    #[test]
+    fn scene_lifecycle() {
+        assert_golden(
+            event(
+                120,
+                30000,
+                EventBody::Scene {
+                    scene: "production".into(),
+                    state: SceneState::Restarted,
+                    iteration: 2,
+                    error: None,
+                },
+            ),
+            r#"{"v":1,"seq":120,"ts":1761730030000,"sim_ms":30000,"kind":"scene","scene":"production","state":"restarted","iteration":2,"error":null}"#,
+        );
+        assert_golden(
+            event(
+                121,
+                31000,
+                EventBody::Scene {
+                    scene: "production".into(),
+                    state: SceneState::Failed,
+                    iteration: 2,
+                    error: Some("'pick' needs mm1 at a machine; it is at (6.0, 3.0)".into()),
+                },
+            ),
+            r#"{"v":1,"seq":121,"ts":1761730031000,"sim_ms":31000,"kind":"scene","scene":"production","state":"failed","iteration":2,"error":"'pick' needs mm1 at a machine; it is at (6.0, 3.0)"}"#,
         );
     }
 

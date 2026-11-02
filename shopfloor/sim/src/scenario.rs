@@ -3,6 +3,7 @@
 //! Every table uses `deny_unknown_fields` so a typo is an error instead of a silently ignored key.
 
 use crate::geometry::{Rect, Vec2};
+use crate::scene::{SceneDef, SceneSpec, resolve_scenes};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -33,6 +34,9 @@ pub struct ScenarioSpec {
     /// The catalogue of actions MMs can perform (silent: they only produce an `action` event).
     #[serde(default)]
     pub actions: BTreeMap<String, ActionSpec>,
+    /// Scripted runs of commands and waits (see `scene.rs`).
+    #[serde(default)]
+    pub scenes: BTreeMap<String, SceneSpec>,
     #[serde(default)]
     pub output: OutputSpec,
 }
@@ -212,6 +216,7 @@ pub struct Scenario {
     pub mobile_manipulators: Vec<MmDef>,
     pub sensors: Vec<SensorDef>,
     pub actions: Vec<ActionDef>,
+    pub scenes: Vec<SceneDef>,
     pub output: OutputSettings,
 }
 
@@ -321,6 +326,10 @@ impl Scenario {
 
     pub fn action(&self, id: &str) -> Option<&ActionDef> {
         self.actions.iter().find(|action| action.id == id)
+    }
+
+    pub fn scene_index(&self, id: &str) -> Option<usize> {
+        self.scenes.iter().position(|scene| scene.id == id)
     }
 
     /// The area an MM's centre may occupy: the floor shrunk by its radius.
@@ -586,11 +595,7 @@ fn resolve(spec: ScenarioSpec, source_path: Option<&Path>) -> anyhow::Result<Sce
         });
     }
 
-    if !errors.is_empty() {
-        bail!("Invalid scenario:\n  - {}", errors.join("\n  - "));
-    }
-
-    Ok(Scenario {
+    let mut scenario = Scenario {
         name: spec.name,
         source_path: source_path.map(Path::to_path_buf),
         sim,
@@ -599,11 +604,19 @@ fn resolve(spec: ScenarioSpec, source_path: Option<&Path>) -> anyhow::Result<Sce
         mobile_manipulators,
         sensors,
         actions,
+        scenes: Vec::new(),
         output: OutputSettings {
             position_interval_ms: output.position_interval_ms,
             sinks,
         },
-    })
+    };
+    // Scenes refer to everything above, so they are checked against the resolved scenario.
+    scenario.scenes = resolve_scenes(&spec.scenes, &scenario, &mut errors);
+
+    if !errors.is_empty() {
+        bail!("Invalid scenario:\n  - {}", errors.join("\n  - "));
+    }
+    Ok(scenario)
 }
 
 /// Sensors nested under a machine or MM: id `<host>.<name>`, no `position` of their own.
@@ -698,7 +711,7 @@ fn positive(value: f64) -> bool {
     value.is_finite() && value > 0.0
 }
 
-fn valid_id(id: &str) -> bool {
+pub(crate) fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id
             .chars()

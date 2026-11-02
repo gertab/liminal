@@ -1,4 +1,5 @@
 use super::*;
+use crate::event::SceneState;
 use crate::scenario::parse_scenario;
 
 const SCENARIO: &str = r#"
@@ -416,7 +417,7 @@ fn pause_freezes_time_and_reset_restores_start() {
     run(&mut engine, 50);
     assert_eq!(engine.sim_ms(), 1000);
 
-    let events = engine.control(Control::Pause, TS);
+    let events = engine.control(Control::Pause, TS).unwrap();
     assert!(matches!(
         events[0].body,
         EventBody::Sim {
@@ -424,12 +425,12 @@ fn pause_freezes_time_and_reset_restores_start() {
             ..
         }
     ));
-    assert!(engine.control(Control::Pause, TS).is_empty());
+    assert!(engine.control(Control::Pause, TS).unwrap().is_empty());
     assert!(run(&mut engine, 50).is_empty());
     assert_eq!(engine.sim_ms(), 1000);
     assert!(engine.state().paused);
 
-    engine.control(Control::Resume, TS);
+    engine.control(Control::Resume, TS).unwrap();
     assert!(!run(&mut engine, 5).is_empty());
 
     engine
@@ -441,7 +442,7 @@ fn pause_freezes_time_and_reset_restores_start() {
             TS,
         )
         .unwrap();
-    let events = engine.control(Control::Reset, TS);
+    let events = engine.control(Control::Reset, TS).unwrap();
     assert_eq!(events[0].sim_ms, 0);
     assert!(events[0].seq > 1, "sequence numbers continue across a reset");
     assert_eq!(engine.state(), self::engine().state());
@@ -631,4 +632,254 @@ fn sensor_readings_carry_where_they_were_taken() {
         vec![(500, 4.4, 7.0), (1000, 4.8, 7.0)],
         "MM sensors move with the MM"
     );
+}
+
+// --- Scenes ----------------------------------------------------------------------------------
+
+const SCENES: &str = r#"
+    [scenes.shuttle]
+    repeat = 2
+
+    [[scenes.shuttle.tracks]]
+    name = "mm1"
+    steps = [
+      { move_to = { mm = "mm1", machine = "machine2" } },
+      { wait_idle = "mm1" },
+      { perform = { mm = "mm1", action = "pick" } },
+      { move_to = { mm = "mm1", machine = "machine1" } },
+      { wait_idle = "mm1" },
+    ]
+
+    [[scenes.shuttle.tracks]]
+    name = "vibration"
+    steps = [
+      { wait_ms = 1000 },
+      { set_sensor = { sensor = "mm1.vibration", value = 1.5 } },
+    ]
+
+    [scenes.forever]
+    loop = true
+    [[scenes.forever.tracks]]
+    steps = [{ perform = { mm = "mm2", action = "scan" } }, { wait_ms = 500 }]
+
+    [scenes.bad]
+    [[scenes.bad.tracks]]
+    steps = [
+      { move_to = { mm = "mm1", point = [8.0, 3.0] } },
+      { wait_idle = "mm1" },
+      { perform = { mm = "mm1", action = "pick" } },
+    ]
+
+    [scenes.instant]
+    loop = true
+    [[scenes.instant.tracks]]
+    steps = [{ wait_idle = "mm2" }, { perform = { mm = "mm2", action = "scan" } }]
+"#;
+
+fn scene_engine() -> Engine {
+    Engine::new(Arc::new(
+        parse_scenario(&format!("{SCENARIO}\n{SCENES}"), None).unwrap(),
+    ))
+}
+
+fn play(engine: &mut Engine, scene: &str) -> Vec<SimEvent> {
+    engine
+        .control(Control::PlayScene(scene.into()), TS)
+        .unwrap()
+}
+
+/// `(state, iteration, sim_ms)` of every scene event.
+fn scene_events(events: &[SimEvent]) -> Vec<(SceneState, u32, u64)> {
+    events
+        .iter()
+        .filter_map(|e| match &e.body {
+            EventBody::Scene {
+                state, iteration, ..
+            } => Some((*state, *iteration, e.sim_ms)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn times_of(events: &[SimEvent], kind: &str) -> Vec<u64> {
+    events
+        .iter()
+        .filter(|e| e.kind() == kind)
+        .map(|e| e.sim_ms)
+        .collect()
+}
+
+#[test]
+fn playing_a_scene_runs_its_first_steps_immediately() {
+    let mut engine = scene_engine();
+    let events = play(&mut engine, "shuttle");
+    let kinds: Vec<&str> = events.iter().map(SimEvent::kind).collect();
+    assert_eq!(kinds, vec!["scene", "move_command"]);
+    assert!(matches!(
+        &events[1].body,
+        EventBody::MoveCommand { origin: Origin::Scene, command_id: 1, .. }
+    ));
+}
+
+#[test]
+fn tracks_run_in_parallel_with_waits_in_sim_time() {
+    let mut engine = scene_engine();
+    let mut events = play(&mut engine, "shuttle");
+    events.extend(run(&mut engine, 2100)); // 42 s
+
+    // mm1: 8 m each way at 0.8 m/s → arrives at machine2 at 10 s and back at 20 s; the second
+    // iteration starts there and ends at 40 s.
+    assert_eq!(
+        scene_events(&events),
+        vec![
+            (SceneState::Started, 1, 0),
+            (SceneState::Restarted, 2, 20_000),
+            (SceneState::Finished, 2, 40_000),
+        ]
+    );
+    assert_eq!(times_of(&events, "action"), vec![10_000, 30_000], "pick on arrival");
+    assert_eq!(
+        times_of(&events, "move_command"),
+        vec![0, 10_000, 20_000, 30_000]
+    );
+    // The vibration track waits 1 s from the start of each iteration.
+    assert_eq!(times_of(&events, "sensor_set"), vec![1_000, 21_000]);
+    assert!(engine.state().scene.is_none());
+}
+
+#[test]
+fn looping_scenes_run_until_stopped() {
+    let mut engine = scene_engine();
+    let mut events = play(&mut engine, "forever");
+    events.extend(run(&mut engine, 100)); // 2 s
+    assert_eq!(times_of(&events, "action"), vec![0, 500, 1000, 1500, 2000]);
+    assert_eq!(
+        scene_events(&events).last().copied(),
+        Some((SceneState::Restarted, 5, 2000))
+    );
+
+    let stopped = engine.control(Control::StopScene, TS).unwrap();
+    assert_eq!(scene_events(&stopped), vec![(SceneState::Stopped, 5, 2000)]);
+    assert!(engine.state().scene.is_none());
+    assert!(times_of(&run(&mut engine, 100), "action").is_empty());
+    // Stopping when nothing plays is a no-op.
+    assert!(engine.control(Control::StopScene, TS).unwrap().is_empty());
+}
+
+#[test]
+fn a_rejected_step_fails_the_scene_but_not_the_world() {
+    let mut engine = scene_engine();
+    let mut events = play(&mut engine, "bad");
+    events.extend(run(&mut engine, 400));
+    let failure = events
+        .iter()
+        .find_map(|e| match &e.body {
+            EventBody::Scene {
+                state: SceneState::Failed,
+                error,
+                ..
+            } => Some(error.clone().unwrap()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(failure, "'pick' needs mm1 at a machine; it is at (8.0, 3.0)");
+    assert!(engine.state().scene.is_none());
+    assert!(!times_of(&run(&mut engine, 50), "sensor").is_empty(), "world keeps running");
+}
+
+#[test]
+fn at_most_one_iteration_starts_per_tick() {
+    let mut engine = scene_engine();
+    let mut events = play(&mut engine, "instant");
+    events.extend(run(&mut engine, 3));
+    assert_eq!(times_of(&events, "action"), vec![0, 20, 40, 60]);
+    assert_eq!(scene_events(&events).len(), 4); // started + 3 restarts
+}
+
+#[test]
+fn pause_freezes_and_reset_stops_a_scene() {
+    let mut engine = scene_engine();
+    play(&mut engine, "shuttle");
+    run(&mut engine, 50);
+    engine.control(Control::Pause, TS).unwrap();
+    let frozen = engine.state();
+    assert!(run(&mut engine, 500).is_empty());
+    assert_eq!(engine.state(), frozen);
+    engine.control(Control::Resume, TS).unwrap();
+
+    let events = engine.control(Control::Reset, TS).unwrap();
+    assert_eq!(scene_events(&events), vec![(SceneState::Stopped, 1, 1000)]);
+    assert_eq!(events.last().unwrap().kind(), "sim");
+    assert_eq!(events.last().unwrap().sim_ms, 0);
+    assert!(engine.state().scene.is_none());
+}
+
+#[test]
+fn unknown_scenes_are_rejected_and_playing_replaces_the_current_scene() {
+    let mut engine = scene_engine();
+    let error = engine
+        .control(Control::PlayScene("nope".into()), TS)
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Unknown scene 'nope' (known: bad, forever, instant, shuttle)"
+    );
+
+    play(&mut engine, "shuttle");
+    let events = play(&mut engine, "forever");
+    let states: Vec<SceneState> = scene_events(&events).iter().map(|s| s.0).collect();
+    assert_eq!(states, vec![SceneState::Stopped, SceneState::Started]);
+    assert_eq!(engine.state().scene.unwrap().id, "forever");
+}
+
+#[test]
+fn scene_status_shows_what_each_track_waits_on() {
+    let mut engine = scene_engine();
+    play(&mut engine, "shuttle");
+    run(&mut engine, 10); // 0.2 s
+    let status = engine.state().scene.unwrap();
+    assert_eq!((status.id.as_str(), status.iteration), ("shuttle", 1));
+    assert_eq!(
+        status.tracks,
+        vec![
+            TrackStatus {
+                name: "mm1".into(),
+                step: 2,
+                steps: 5,
+                current: Some("wait until mm1 is idle".into()),
+                done: false,
+            },
+            TrackStatus {
+                name: "vibration".into(),
+                step: 1,
+                steps: 2,
+                current: Some("wait 1.0 s (0.8 s left)".into()),
+                done: false,
+            },
+        ]
+    );
+
+    run(&mut engine, 50); // 1.2 s: the vibration track is done, mm1 still driving
+    let status = engine.state().scene.unwrap();
+    assert_eq!(
+        status.tracks[1],
+        TrackStatus {
+            name: "vibration".into(),
+            step: 2,
+            steps: 2,
+            current: None,
+            done: true,
+        }
+    );
+}
+
+#[test]
+fn scenes_are_deterministic() {
+    fn record() -> Vec<SimEvent> {
+        let mut engine = scene_engine();
+        let mut events = play(&mut engine, "shuttle");
+        events.extend(run(&mut engine, 2100));
+        events
+    }
+    assert_eq!(record(), record());
 }

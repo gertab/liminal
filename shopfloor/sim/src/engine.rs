@@ -4,14 +4,20 @@
 //! - [`Engine::apply`] executes a [`CommandEnvelope`] (from the UI, a scene, an API…);
 //! - [`Engine::step`] advances simulation time by one fixed tick (`sim.tick_ms`).
 //!
-//! Both return the [`SimEvent`]s they caused. Wall-clock time is passed in (`ts`) and only used to
-//! stamp events, so tests and future faster-than-real-time playback get identical behaviour.
+//! It also plays scenes ([`Control::PlayScene`]): after each tick's physics, the scene player
+//! resumes tracks whose waits are over and runs their commands through `apply`.
+//!
+//! Everything returns the [`SimEvent`]s it caused. Wall-clock time is passed in (`ts`) and only
+//! used to stamp events, so tests and faster-than-real-time runs behave identically.
 
 use crate::command::{CommandEnvelope, Control, Origin, SimCommand, Target};
-use crate::event::{EventBody, Lifecycle, Place, SCHEMA_VERSION, SimEvent};
+use crate::event::{EventBody, Lifecycle, Place, SCHEMA_VERSION, SceneState, SimEvent};
 use crate::geometry::{Vec2, path_length, round_to};
 use crate::motion::{PathPlanner, StraightLine};
 use crate::scenario::{HostKind, MmDef, Scenario};
+use crate::scene::{
+    Repeat, ScenePlayer, SceneStatus, Step, TrackStatus, Wait, format_seconds,
+};
 use anyhow::{anyhow, bail};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -38,6 +44,7 @@ pub struct Engine {
     /// Where each sensor (same order as `scenario.sensors`) takes its readings.
     anchors: Vec<SensorAnchor>,
     rng: StdRng,
+    scene: Option<ScenePlayer>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -87,6 +94,8 @@ pub struct WorldState {
     pub paused: bool,
     pub mobile_manipulators: Vec<MmView>,
     pub sensors: Vec<SensorView>,
+    /// The playing scene, if any.
+    pub scene: Option<SceneStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -167,6 +176,7 @@ impl Engine {
             next_command_id: 1,
             mms: Vec::new(),
             sensors: Vec::new(),
+            scene: None,
         };
         engine.reset_world();
         engine
@@ -190,7 +200,9 @@ impl Engine {
         vec![self.event(ts, body)]
     }
 
-    pub fn control(&mut self, control: Control, ts: u64) -> Vec<SimEvent> {
+    /// Pause / resume / reset, and playing or stopping scenes. Only `PlayScene` can fail (unknown
+    /// scene), and then nothing changes.
+    pub fn control(&mut self, control: Control, ts: u64) -> anyhow::Result<Vec<SimEvent>> {
         let body = match control {
             Control::Pause if !self.paused => {
                 self.paused = true;
@@ -200,14 +212,20 @@ impl Engine {
                 self.paused = false;
                 self.lifecycle(Lifecycle::Resumed)
             }
-            Control::Pause | Control::Resume => return Vec::new(),
+            Control::Pause | Control::Resume => return Ok(Vec::new()),
             Control::Reset => {
-                // Sequence numbers and command ids keep increasing so they stay unique in the stream.
+                // `stopped` is stamped with the pre-reset time. Sequence numbers and command ids
+                // keep increasing so they stay unique in the stream.
+                let mut events = self.stop_scene(ts);
                 self.reset_world();
-                self.lifecycle(Lifecycle::Reset)
+                let body = self.lifecycle(Lifecycle::Reset);
+                events.push(self.event(ts, body));
+                return Ok(events);
             }
+            Control::PlayScene(id) => return self.play_scene(&id, ts),
+            Control::StopScene => return Ok(self.stop_scene(ts)),
         };
-        vec![self.event(ts, body)]
+        Ok(vec![self.event(ts, body)])
     }
 
     /// Executes a command. On error nothing changes and no events are produced.
@@ -320,7 +338,9 @@ impl Engine {
             });
         }
 
-        self.events(ts, bodies)
+        let mut events = self.events(ts, bodies);
+        events.extend(self.run_scene(ts));
+        events
     }
 
     pub fn state(&self) -> WorldState {
@@ -378,7 +398,158 @@ impl Engine {
                     last_ms: sensor.last_ms,
                 })
                 .collect(),
+            scene: self.scene_status(),
         }
+    }
+
+    // --- Scenes ----------------------------------------------------------------------------
+
+    fn play_scene(&mut self, id: &str, ts: u64) -> anyhow::Result<Vec<SimEvent>> {
+        let scenario = Arc::clone(&self.scenario);
+        let index = scenario.scene_index(id).ok_or_else(|| {
+            let ids = known(scenario.scenes.iter().map(|s| s.id.as_str()));
+            anyhow!(
+                "Unknown scene '{id}' (known: {})",
+                if ids.is_empty() { "none" } else { ids.as_str() }
+            )
+        })?;
+        let mut events = self.stop_scene(ts);
+        let player = ScenePlayer::new(index, scenario.scenes[index].tracks.len(), self.sim_ms);
+        let body = scene_body(id, player.iteration, SceneState::Started, None);
+        events.push(self.event(ts, body));
+        self.scene = Some(player);
+        events.extend(self.run_scene(ts));
+        Ok(events)
+    }
+
+    fn stop_scene(&mut self, ts: u64) -> Vec<SimEvent> {
+        let Some(player) = self.scene.take() else {
+            return Vec::new();
+        };
+        let id = self.scenario.scenes[player.scene].id.clone();
+        let body = scene_body(&id, player.iteration, SceneState::Stopped, None);
+        vec![self.event(ts, body)]
+    }
+
+    /// Runs every track of the playing scene until it reaches a wait that isn't over (or its end),
+    /// then finishes or restarts the scene when all tracks are done.
+    fn run_scene(&mut self, ts: u64) -> Vec<SimEvent> {
+        // Taken out while running, so commands go through `apply` like any other command.
+        let Some(mut player) = self.scene.take() else {
+            return Vec::new();
+        };
+        let scenario = Arc::clone(&self.scenario);
+        let def = &scenario.scenes[player.scene];
+        let mut events = Vec::new();
+
+        loop {
+            for (track, cursor) in def.tracks.iter().zip(player.tracks.iter_mut()) {
+                loop {
+                    if let Some(wait) = cursor.waiting {
+                        let over = match wait {
+                            Wait::Until(until_ms) => self.sim_ms >= until_ms,
+                            Wait::Idle(mm) => self.mms[mm].motion.is_none(),
+                        };
+                        if !over {
+                            break;
+                        }
+                        cursor.waiting = None;
+                    }
+                    let Some(step) = track.steps.get(cursor.next) else {
+                        break;
+                    };
+                    cursor.next += 1;
+                    match step {
+                        Step::Command(command) => {
+                            let envelope = CommandEnvelope::new(Origin::Scene, command.clone());
+                            match self.apply(envelope, ts) {
+                                Ok(batch) => events.extend(batch),
+                                Err(error) => {
+                                    // The scene stops; the world keeps running.
+                                    let body = scene_body(
+                                        &def.id,
+                                        player.iteration,
+                                        SceneState::Failed,
+                                        Some(format!("{error:#}")),
+                                    );
+                                    events.push(self.event(ts, body));
+                                    return events;
+                                }
+                            }
+                        }
+                        Step::WaitMs(ms) => cursor.waiting = Some(Wait::Until(self.sim_ms + ms)),
+                        Step::WaitIdle(mm) => {
+                            let index = scenario.mm_index(mm).expect("validated: scene MMs exist");
+                            cursor.waiting = Some(Wait::Idle(index));
+                        }
+                    }
+                }
+            }
+
+            let iteration_done = def
+                .tracks
+                .iter()
+                .zip(&player.tracks)
+                .all(|(track, cursor)| cursor.waiting.is_none() && cursor.next >= track.steps.len());
+            if !iteration_done {
+                break;
+            }
+            let another = match def.repeat {
+                Repeat::Once => false,
+                Repeat::Times(times) => player.iteration < times,
+                Repeat::Forever => true,
+            };
+            if !another {
+                let body = scene_body(&def.id, player.iteration, SceneState::Finished, None);
+                events.push(self.event(ts, body));
+                return events;
+            }
+            // At most one iteration starts per tick, so a scene whose waits are already over
+            // can't spin within a single tick; it restarts on the next one.
+            if player.iteration_started_ms == self.sim_ms {
+                break;
+            }
+            player.restart(self.sim_ms);
+            let body = scene_body(&def.id, player.iteration, SceneState::Restarted, None);
+            events.push(self.event(ts, body));
+        }
+
+        self.scene = Some(player);
+        events
+    }
+
+    fn scene_status(&self) -> Option<SceneStatus> {
+        let player = self.scene.as_ref()?;
+        let def = &self.scenario.scenes[player.scene];
+        Some(SceneStatus {
+            id: def.id.clone(),
+            label: def.label.clone(),
+            iteration: player.iteration,
+            tracks: def
+                .tracks
+                .iter()
+                .zip(&player.tracks)
+                .map(|(track, cursor)| {
+                    let current = cursor.waiting.map(|wait| {
+                        let text = track.steps[cursor.next - 1].describe(&self.scenario);
+                        match wait {
+                            Wait::Until(until_ms) => format!(
+                                "{text} ({} left)",
+                                format_seconds(until_ms.saturating_sub(self.sim_ms))
+                            ),
+                            Wait::Idle(_) => text,
+                        }
+                    });
+                    TrackStatus {
+                        name: track.name.clone(),
+                        step: cursor.next.min(track.steps.len()),
+                        steps: track.steps.len(),
+                        done: current.is_none() && cursor.next >= track.steps.len(),
+                        current,
+                    }
+                })
+                .collect(),
+        })
     }
 
     // -----------------------------------------------------------------------------------------
@@ -659,6 +830,15 @@ fn position_body(id: &str, mm: &MmState, speed_mps: f64) -> EventBody {
         y: round_to(mm.position.y, POSITION_DECIMALS),
         heading_rad: round_to(mm.heading, HEADING_DECIMALS),
         speed_mps,
+    }
+}
+
+fn scene_body(id: &str, iteration: u32, state: SceneState, error: Option<String>) -> EventBody {
+    EventBody::Scene {
+        scene: id.to_string(),
+        state,
+        iteration,
+        error,
     }
 }
 

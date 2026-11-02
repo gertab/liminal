@@ -66,7 +66,38 @@ export interface Scenario {
   mobile_manipulators: MmDef[];
   sensors: SensorDef[];
   actions: ActionDef[];
+  scenes: SceneDef[];
   output: { position_interval_ms: number; sinks: SinkDef[] };
+}
+
+// --- Scenes (scene.rs) --------------------------------------------------------------------------
+
+export type Repeat = "once" | "forever" | { times: number };
+
+export type SceneStep = { command: SimCommand } | { wait_ms: number } | { wait_idle: string };
+
+export interface SceneDef {
+  id: string;
+  label: string;
+  repeat: Repeat;
+  tracks: { name: string; steps: SceneStep[] }[];
+}
+
+export interface TrackStatus {
+  name: string;
+  /** 1-based index of the step being waited on (equals `steps` when done). */
+  step: number;
+  steps: number;
+  /** What the track waits on, e.g. "wait 1.5 s (0.4 s left)"; null when done. */
+  current: string | null;
+  done: boolean;
+}
+
+export interface SceneStatus {
+  id: string;
+  label: string;
+  iteration: number;
+  tracks: TrackStatus[];
 }
 
 // --- Dynamic state (engine.rs: WorldState) ------------------------------------------------------
@@ -115,6 +146,8 @@ export interface WorldState {
   paused: boolean;
   mobile_manipulators: MmView[];
   sensors: SensorView[];
+  /** The playing scene, if any. */
+  scene: SceneStatus | null;
 }
 
 // --- Output events (event.rs: SimEvent) — the Liminal contract ----------------------------------
@@ -183,6 +216,13 @@ export type SimEvent = Envelope &
         origin: Origin;
       }
     | { kind: "sim"; state: "started" | "paused" | "resumed" | "reset"; scenario: string }
+    | {
+        kind: "scene";
+        scene: string;
+        state: "started" | "restarted" | "finished" | "stopped" | "failed";
+        iteration: number;
+        error: string | null;
+      }
   );
 
 export type EventKind = SimEvent["kind"];
@@ -195,6 +235,7 @@ export const EVENT_KINDS: EventKind[] = [
   "sensor",
   "sensor_set",
   "action",
+  "scene",
   "sim",
 ];
 
@@ -209,4 +250,4 @@ export type SimCommand =
   | { type: "set_sensor_noise"; sensor: string; std: number }
   | { type: "perform"; mm: string; action: string };
 
-export type Control = "pause" | "resume" | "reset";
+export type Control = "pause" | "resume" | "reset" | "stop_scene" | { play_scene: string };

@@ -111,6 +111,7 @@ export default function App() {
             onSelectMm={(id) => setSelectedMm((current) => (current === id ? null : id))}
             onFocusSensor={(id) => setFocus({ type: "sensor", id })}
             send={(command) => void send(command)}
+            onControl={(value) => void control(value)}
           />
         )}
       </main>

@@ -24,7 +24,7 @@ const REQUEST_CHANNEL_CAPACITY: usize = 64;
 
 enum Request {
     Command(CommandEnvelope, oneshot::Sender<anyhow::Result<()>>),
-    Control(Control, oneshot::Sender<()>),
+    Control(Control, oneshot::Sender<anyhow::Result<()>>),
     Shutdown,
 }
 
@@ -91,6 +91,7 @@ impl SimRuntime {
             .map_err(|_| anyhow!("Simulation stopped before answering"))?
     }
 
+    /// Pause / resume / reset, or play / stop a scene; returns the engine's error, if any.
     pub async fn control(&self, control: Control) -> anyhow::Result<()> {
         let (reply, response) = oneshot::channel();
         self.requests
@@ -99,7 +100,7 @@ impl SimRuntime {
             .map_err(|_| anyhow!("Simulation is not running"))?;
         response
             .await
-            .map_err(|_| anyhow!("Simulation stopped before answering"))
+            .map_err(|_| anyhow!("Simulation stopped before answering"))?
     }
 
     /// Stops the engine, then lets every sink drain and close.
@@ -154,8 +155,10 @@ async fn run_engine(
                     let _ = reply.send(result);
                 }
                 Some(Request::Control(control, reply)) => {
-                    publish(&events, engine.control(control, now_ms()));
-                    let _ = reply.send(());
+                    let result = engine
+                        .control(control, now_ms())
+                        .map(|batch| publish(&events, batch));
+                    let _ = reply.send(result);
                 }
                 Some(Request::Shutdown) | None => break,
             },

@@ -51,14 +51,19 @@ impl CommandEnvelope {
     }
 }
 
-/// Engine control (not part of scenes).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Engine control (not part of scenes). JSON: `"pause"`, `{"play_scene": "production"}`, …
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Control {
     Pause,
     Resume,
-    /// Back to the scenario's initial state (positions, setpoints, sim time 0, RNG seed).
+    /// Back to the scenario's initial state (positions, setpoints, sim time 0, RNG seed). Stops
+    /// any playing scene.
     Reset,
+    /// Play one of the scenario's scenes, replacing any scene that is playing.
+    PlayScene(String),
+    /// Stop the playing scene. The world keeps running as it is.
+    StopScene,
 }
 
 #[cfg(test)]
@@ -104,6 +109,16 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&perform).unwrap(),
             json!({"type": "perform", "mm": "mm1", "action": "pick"})
+        );
+    }
+
+    #[test]
+    fn controls_have_a_stable_json_shape() {
+        assert_eq!(serde_json::to_value(Control::Pause).unwrap(), json!("pause"));
+        assert_eq!(serde_json::to_value(Control::StopScene).unwrap(), json!("stop_scene"));
+        assert_eq!(
+            serde_json::from_value::<Control>(json!({"play_scene": "production"})).unwrap(),
+            Control::PlayScene("production".into())
         );
     }
 

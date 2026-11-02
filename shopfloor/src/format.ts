@@ -1,4 +1,4 @@
-import type { EventKind, Scenario, SimEvent } from "./types";
+import type { EventKind, Repeat, Scenario, SimEvent } from "./types";
 
 export const KIND_LABELS: Record<EventKind, string> = {
   position: "position",
@@ -8,6 +8,7 @@ export const KIND_LABELS: Record<EventKind, string> = {
   sensor: "sensor",
   sensor_set: "sensor set",
   action: "action",
+  scene: "scene",
   sim: "sim",
 };
 
@@ -16,6 +17,12 @@ const MM_COLORS = ["#53c7b6", "#f2b84b", "#6aa9ff", "#ff8fc7", "#b48cff", "#9ad8
 
 export function mmColor(index: number): string {
   return MM_COLORS[index % MM_COLORS.length];
+}
+
+export function repeatLabel(repeat: Repeat): string {
+  if (repeat === "once") return "once";
+  if (repeat === "forever") return "loop";
+  return `${repeat.times}×`;
 }
 
 /** Compact number formatting for sensor values and coordinates. */
@@ -53,7 +60,7 @@ function describePlace(scenario: Scenario | null, place: { x: number; y: number;
 
 /** The entity an event is about (for filtering). */
 export function eventEntity(event: SimEvent): string | null {
-  return event.kind === "sim" ? null : event.entity;
+  return event.kind === "sim" || event.kind === "scene" ? null : event.entity;
 }
 
 /** One-line human summary of an event. */
@@ -78,6 +85,8 @@ export function describeEvent(event: SimEvent, scenario: Scenario | null): strin
       return `${event.sensor} setpoint ${formatValue(event.previous_setpoint)} → ${formatValue(event.setpoint)}, noise σ ${formatValue(event.noise_std)}  [${event.origin}]`;
     case "action":
       return `#${event.command_id} ${event.action} at ${describePlace(scenario, event)}  [${event.origin}]`;
+    case "scene":
+      return `${event.scene} ${event.state} (iteration ${event.iteration})${event.error ? `: ${event.error}` : ""}`;
     case "sim":
       return `${event.state} · ${event.scenario}`;
   }

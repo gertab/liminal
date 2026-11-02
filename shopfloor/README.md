@@ -8,6 +8,8 @@ sensors can also stand on their own at a fixed spot.
 - You send MMs to machines or to any point on the floor.
 - MMs perform **actions** such as pick and place. These are *silent*: they only produce an event.
 - You change what each sensor reports while the simulation runs.
+- **Scenes** script all of the above: MMs shuttling between machines, actions, sensor faults. They play in the app
+  or headless from the command line, so the stream can be produced without anyone clicking.
 - Everything that happens is emitted as a stream of JSON events: positions, move commands, actions and sensor readings.
 
 The stream is designed to be consumed by Liminal. Events are written to the in-app log, and optionally to stdout and
@@ -27,12 +29,36 @@ npm run tauri dev           # Vite on 127.0.0.1:5174 + the app window
 - **stdout** carries only event JSON lines (when the `stdout` sink is enabled). For example:
   `npm run tauri dev 2>/dev/null | grep '^{' | jq .`
 
-Tests and checks:
+### Headless (no window)
+
+The `shopfloor` command-line tool runs a scenario, and optionally one of its scenes, without the GUI. Events go to the
+scenario's `[output.sinks]`, and logs go to stderr.
 
 ```bash
 cd shopfloor
-cargo test                  # engine, scenario validation, golden event JSON, runtime + sinks
-cargo clippy --all-targets
+cargo run -p shopfloor-cli -- check scenarios/default.toml                         # validate + list contents
+cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production        # real time, until Ctrl+C
+cargo run -p shopfloor-cli -- run scenarios/default.toml --scene vibration_fault   # ends when the scene ends
+cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production \
+    --fast --duration 600 --jsonl recordings/production.jsonl                      # 10 min of data in < 1 s
+```
+
+| Option | Meaning |
+|---|---|
+| `--scene ID` | Play this scene from the start. The run ends when the scene finishes (exit 0) or fails (exit 1). |
+| `--duration SECS` | Stop after this much simulation time. Required with `--fast` for a looping scene. |
+| `--fast` | Run as fast as possible. Events are still stamped as if the run happened in real time. |
+| `--jsonl PATH` | Also write every event to this file (overwritten). |
+
+Without `--scene` or `--duration`, a real-time run continues until Ctrl+C. The binary itself is
+`target/debug/shopfloor` (or `cargo build -p shopfloor-cli --release`).
+
+### Tests and checks
+
+```bash
+cd shopfloor
+cargo test --workspace      # engine, scenes, scenario validation, golden event JSON, runtime, headless runs
+cargo clippy --workspace --all-targets
 npm run build               # TypeScript type-check + production bundle
 ```
 
@@ -49,6 +75,7 @@ npm run build               # TypeScript type-check + production bundle
 | Change a sensor | Use the slider or number field in **Sensors** on the right. **↺** resets it to the default. **noise σ** adds Gaussian noise. Clicking a reading or a ◇ floor sensor on the floor jumps to its control. Free-standing sensors are listed under **Floor**. |
 | Pause / reset | Toolbar, or **Space** to pause and resume. Reset returns to start positions, default sensor values and time 0. |
 | Inspect the output | The bottom panel shows every event. You can filter by kind or entity. **{}** shows the raw JSON lines that the sinks write. |
+| Play a scene | **Scenes** at the top right: **Play** / **Stop**. While it plays, each track shows what it waits on, and the toolbar shows the scene and its iteration. Pause and Reset apply to the scene too, and manual control still works. |
 | Switch scenario | **Open** (the picker starts in `scenarios/`). **Reload** re-reads the current file. |
 
 ## Architecture
@@ -56,6 +83,7 @@ npm run build               # TypeScript type-check + production bundle
 ```
 shopfloor/
   sim/          shopfloor-sim: the engine (pure Rust, no Tauri). Tests live here.
+  cli/          shopfloor-cli: the headless `shopfloor` command
   src-tauri/    shopfloor-gui: thin Tauri shell (commands + event bridge)
   src/          React UI: draws state, sends commands
   scenarios/    layout files (TOML)
@@ -81,12 +109,18 @@ React UI ── invoke("send_command", {move_to …}) ──► SimRuntime (toki
 - **Action rules** live in one place, `Engine::action_blocker`.
   - It rejects a `perform` command that isn't allowed.
   - It also fills `MmView.actions` (available + reason), so the UI never re-implements the rules.
+- **Scenes** ([sim/src/scene.rs](sim/src/scene.rs)) are played by the engine itself, after each tick's physics.
+  - Their commands go through `apply` with `origin: "scene"`.
+  - Waits are measured in simulation time.
+  - So a scene pauses, resets and runs fast together with the world, and is deterministic.
 - **Path planning** sits behind `trait PathPlanner` ([sim/src/motion.rs](sim/src/motion.rs)). The default,
   `StraightLine`, ignores obstacles.
 - **`SimRuntime`** ([sim/src/runtime.rs](sim/src/runtime.rs)) drives an engine in real time and fans out events.
   Loading a scenario starts a fresh runtime.
 - **Sinks** ([sim/src/sinks/](sim/src/sinks/)) each run on their own thread. A slow sink skips batches with a warning
   instead of slowing the simulation.
+- **Headless runs** use the same `SimRuntime` in real time. `--fast` runs use
+  [sim/src/headless.rs](sim/src/headless.rs), which steps the engine in a loop and writes straight to the sinks.
 
 ## Scenario files
 
@@ -125,6 +159,10 @@ See [scenarios/default.toml](scenarios/default.toml) for a commented example.
 | `… label` | `<name>` humanised (`hall_temp` → "Hall temp") | Display name |
 | `… period_ms` | 1000 | Reporting period |
 | `… noise_std` | 0 | Gaussian noise σ |
+| `[scenes.<id>]` | | A scripted run (see [Scenes](#scenes)) |
+| `… label` | `<id>` | Display name |
+| `… loop` / `… repeat` | run once | `loop = true` repeats until stopped; `repeat = N` runs N iterations |
+| `[[scenes.<id>.tracks]]` `name`, `steps` | name: "track N" | A track: a list of steps run in order. A scene's tracks run in parallel. |
 | `[output] position_interval_ms` | 100 | How often a moving MM reports its position |
 | `[output.sinks.<name>] type = "stdout"` | | One JSON line per event on stdout |
 | `[output.sinks.<name>] type = "jsonl", path, append = true` | | One JSON line per event in a file. The path is relative to the scenario file. `shopfloor/recordings/` is git-ignored. |
@@ -135,6 +173,61 @@ Rules worth knowing:
 - Footprints, docks, starts and sensor positions must lie inside the floor.
 - Only free-standing sensors have a `position`. A mounted sensor is where its host is.
 - Periods must be at least `tick_ms`.
+
+## Scenes
+
+A scene scripts a run. It has one or more **tracks** that run in parallel, and each track is a list of **steps** run
+in order:
+
+```toml
+[scenes.production]
+label = "Production loop"
+loop = true
+
+[[scenes.production.tracks]]
+name = "mm1 shuttle"
+steps = [
+  { move_to = { mm = "mm1", machine = "machine2" } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "pick" } },
+  { wait_ms = 1500 },
+  { move_to = { mm = "mm1", machine = "machine1" } },
+  { wait_idle = "mm1" },
+]
+
+[[scenes.production.tracks]]
+name = "mm1 vibration"
+steps = [
+  { wait_ms = 15000 },
+  { set_sensor = { sensor = "mm1.vibration", value = 1.2 } },
+  { wait_ms = 8000 },
+  { set_sensor = { sensor = "mm1.vibration", value = 0.1 } },
+]
+```
+
+| Step | Does |
+|---|---|
+| `move_to = { mm, machine }` or `{ mm, point = [x, y] }` | Send the MM somewhere (it does not wait for arrival) |
+| `wait_idle = "mm1"` | Wait until the MM has no move in progress (it arrived, or was stopped) |
+| `wait_ms = N` | Wait N ms of simulation time |
+| `perform = { mm, action }` | Perform an action |
+| `set_sensor = { sensor, value }` | Set a sensor's value |
+| `set_sensor_noise = { sensor, std }` | Set a sensor's noise |
+| `stop = "mm1"` | Stop the MM |
+
+How it plays:
+- Steps run in **simulation time**.
+  - Commands run the moment their track reaches them.
+  - A track only pauses at a wait.
+  - Pausing the simulation pauses the scene; Reset stops it.
+- An **iteration** ends when every track has finished. With `loop` / `repeat`, all tracks then start again from where
+  the world is now. The world is not reset, so write looping scenes that return MMs to where they began.
+- If a step is rejected, the scene **fails** and stops, and the world keeps running. Example: a `pick` while the MM
+  isn't at a machine.
+- References are checked when the scenario loads: unknown MMs, machines, sensors or actions, values out of range, and
+  a loop without any wait.
+- Playing a scene while another plays replaces it. Manual commands still work during a scene.
+- Every command a scene runs appears as its usual event with `origin: "scene"`, so a stream records who did what.
 
 ## Output events: the Liminal contract
 
@@ -158,6 +251,7 @@ Every event is **one flat JSON object** with the same envelope:
 | `sensor_set` | A sensor's setpoint or noise is changed | `sensor`, `entity`, `sensor_kind`, `setpoint`, `noise_std`, `previous_setpoint`, `origin` |
 | `action` | An MM performs an action (silent: nothing else changes) | `entity`, `action`, `command_id` (shared with moves), `x`, `y`, `at`, `origin` |
 | `sim` | Started, paused, resumed or reset | `state`, `scenario` |
+| `scene` | A scene starts, restarts (next iteration), finishes, is stopped, or fails | `scene`, `state` (`started`/`restarted`/`finished`/`stopped`/`failed`), `iteration`, `error` (why it failed, else null) |
 
 `at` is the machine id when the point is within `dock_tolerance_m` of that machine's dock, otherwise `null`. So
 "mm1 moves from machine1 to machine2, then picks there" is:
@@ -202,6 +296,9 @@ Notes for Liminal pipelines:
   1. Add an `EventBody` variant with a golden test.
   2. Update the `types.ts` union, `EVENT_KINDS`, `KIND_LABELS` / `describeEvent` in [src/format.ts](src/format.ts),
      and the `--kind-*` colour in `styles.css`.
+- **New scene step:**
+  1. Add a `StepSpec` variant and resolve it in `resolve_step` ([sim/src/scene.rs](sim/src/scene.rs)).
+  2. If it is a new kind of wait, add a `Wait` variant and check it in `Engine::run_scene`.
 - **Obstacle avoidance:** implement `PathPlanner` and pass it with `Engine::with_planner`.
 
 ## Todos
@@ -210,21 +307,8 @@ Notes for Liminal pipelines:
    - Add a `tcp` sink: a server that broadcasts each event as a frame (4-byte big-endian length + JSON, written in one
      `write_all`).
    - Add an example Liminal config using `tcp_input` (mode = client) that routes by `kind`.
-2. **Automated scenes.** A scene file is a list of timed (later event-triggered) commands, using the same shape the
-   engine already accepts:
-   ```toml
-   [[steps]]
-   at_ms = 0
-   command = { type = "set_sensor", sensor = "mm1.vibration", value = 0.05 }
-   [[steps]]
-   at_ms = 0
-   command = { type = "move_to", mm = "mm1", target = { machine = "machine2" } }
-   [[steps]]
-   at_ms = 12000
-   command = { type = "perform", mm = "mm1", action = "pick" }
-   ```
-   A scene player is just another command source (`origin = "scene"`). It could also run headless on `shopfloor-sim`.
-3. **Later:**
+2. **Later:**
+   - richer scenes: steps triggered by other events, sensor ramps, labelled markers, random variation;
    - obstacle-avoiding planner;
    - lidar computed from the layout;
    - in-app layout editing;

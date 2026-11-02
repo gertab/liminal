@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { formatPoint, formatSimTime, formatValue, machineLabel, mmColor } from "../../format";
 import type { ActionEvent } from "../../hooks/useSimulation";
-import type { MmDef, MmView, Scenario, SensorDef, SensorView, SimCommand, WorldState } from "../../types";
+import { ScenesPanel } from "../scenes/ScenesPanel";
+import type { Control, MmDef, MmView, Scenario, SensorDef, SensorView, SimCommand, WorldState } from "../../types";
 import type { Focus } from "../floor/FloorView";
 
 /** Minimum time between setpoint commands while a slider is dragged. */
@@ -18,6 +19,7 @@ interface ControlPanelProps {
   onSelectMm: (id: string) => void;
   onFocusSensor: (id: string) => void;
   send: (command: SimCommand) => void;
+  onControl: (control: Control) => void;
 }
 
 export function ControlPanel({
@@ -29,6 +31,7 @@ export function ControlPanel({
   onSelectMm,
   onFocusSensor,
   send,
+  onControl,
 }: ControlPanelProps) {
   const mmViews = new Map((world?.mobile_manipulators ?? []).map((mm) => [mm.id, mm]));
   const sensorViews = new Map((world?.sensors ?? []).map((sensor) => [sensor.id, sensor]));
@@ -36,6 +39,8 @@ export function ControlPanel({
 
   return (
     <aside className="controls">
+      <ScenesPanel scenario={scenario} world={world} onControl={onControl} />
+
       <section className="panel-section">
         <h2>Mobile manipulators</h2>
         {scenario.mobile_manipulators.map((def, index) => (

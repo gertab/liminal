@@ -25,6 +25,7 @@
   --kind-sensor: #b48cff;
   --kind-sensor_set: #ff8fc7;
   --kind-action: #9ad86b;
+  --kind-scene: #5fd4ff;
   --kind-sim: #9aa7a5;
 
   color: var(--text);
@@ -202,6 +203,19 @@ h3 {
   border: 1px solid currentColor;
   border-radius: 4px;
   padding: 0 4px;
+}
+
+.scene-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--kind-scene);
+  border-radius: 10px;
+  color: var(--kind-scene);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .targeting-hint {
@@ -440,6 +454,77 @@ h3 {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.scene-card {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+}
+
+.scene-card.is-playing {
+  border-color: var(--kind-scene);
+  border-left-color: var(--kind-scene);
+}
+
+.scene-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.scene-header .chip-button {
+  margin-left: auto;
+}
+
+.scene-repeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chip-button.scene-play:hover:not(:disabled) {
+  border-color: var(--kind-scene);
+  color: var(--kind-scene);
+}
+
+.scene-tracks {
+  display: grid;
+  gap: 3px;
+}
+
+.scene-track {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) 36px minmax(0, 1.6fr);
+  gap: 6px;
+  font-size: 12px;
+}
+
+.scene-track-name,
+.scene-track-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-track-step {
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.scene-track-current {
+  color: var(--kind-scene);
+}
+
+.scene-track.is-done .scene-track-current {
+  color: var(--text-muted);
 }
 
 .mm-card {
@@ -746,6 +831,7 @@ h3 {
 .kind-sensor { color: var(--kind-sensor); }
 .kind-sensor_set { color: var(--kind-sensor_set); }
 .kind-action { color: var(--kind-action); }
+.kind-scene { color: var(--kind-scene); }
 .kind-sim { color: var(--kind-sim); }
 
 /* --- Toast -------------------------------------------------------------------------------- */

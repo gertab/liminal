@@ -1,4 +1,4 @@
-import { FileText, FolderOpen, Pause, Play, RefreshCw, RotateCcw, Terminal } from "lucide-react";
+import { Clapperboard, FileText, FolderOpen, Pause, Play, RefreshCw, RotateCcw, Terminal } from "lucide-react";
 import { formatSimTime } from "../../format";
 import type { Control, Scenario, WorldState } from "../../types";
 
@@ -59,6 +59,12 @@ export function Toolbar({ scenario, world, loading, selectedMmLabel, onOpen, onR
         {world ? formatSimTime(world.sim_ms) : "--:--.-"}
         {paused && <span className="paused-badge">paused</span>}
       </div>
+      {world?.scene && (
+        <div className="scene-badge" title={`Scene '${world.scene.id}' is playing`}>
+          <Clapperboard size={13} />
+          {world.scene.label} · #{world.scene.iteration}
+        </div>
+      )}
       <div className="spacer" />
       {selectedMmLabel && (
         <div className="targeting-hint">
