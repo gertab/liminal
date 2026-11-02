@@ -222,6 +222,11 @@ export function GraphCanvas({
   }, [flowStoreSnapshotText]);
   const savedLayout = useMemo(() => readStoredLayout(configPath), [configPath, layoutRevision]);
   const [nodePositions, setNodePositions] = useState<Record<string, LayoutPosition>>(savedLayout);
+  // Sizes React Flow measured for each node. `flowNodes` is rebuilt whenever runtime activity changes
+  // (several times a second while a pipeline runs); a node object without `measured` makes React Flow
+  // forget the node's size and handle positions, hide the node (`visibility: hidden`) and drop its
+  // edges until it re-measures on the next frame. Passing the sizes back keeps the canvas steady.
+  const [nodeDimensions, setNodeDimensions] = useState<Record<string, { width: number; height: number }>>({});
   const [debugSnapshot, setDebugSnapshot] = useState<FlowDebugSnapshot | null>(null);
   const [flowErrors, setFlowErrors] = useState<string[]>([]);
   const diagnosticsByNode = useMemo(() => diagnosticsByNodeId(graph), [graph]);
@@ -292,6 +297,7 @@ export function GraphCanvas({
         id: node.id,
         type: "liminalNode",
         position: positions.get(node.id) ?? { x: laneX[node.lane], y: laneTop },
+        measured: nodeDimensions[node.id],
         draggable: true,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
@@ -326,6 +332,7 @@ export function GraphCanvas({
     graph,
     connectionSourceNodeId,
     onSelectChannel,
+    nodeDimensions,
     nodePositions,
     runtimeActivity,
     savedLayout,
@@ -449,6 +456,7 @@ export function GraphCanvas({
   }, [hasMissingEdgeDom, refreshFlowGeometry, updateDebugSnapshot]);
 
   const recoverFlowView = useCallback(() => {
+    setNodeDimensions({});
     setFlowRevision((revision) => revision + 1);
     fittedConfigPath.current = null;
     window.requestAnimationFrame(() => {
@@ -538,6 +546,22 @@ export function GraphCanvas({
     (changes: NodeChange<Node<FlowNodeData>>[]) => {
       const removeChanges = changes.filter((change) => change.type === "remove");
       const positionChanges = changes.filter((change) => change.type === "position" && change.position);
+      const dimensionChanges = changes.flatMap((change) =>
+        change.type === "dimensions" && change.dimensions ? [{ id: change.id, ...change.dimensions }] : [],
+      );
+
+      if (dimensionChanges.length > 0) {
+        setNodeDimensions((current) => {
+          let next = current;
+          dimensionChanges.forEach(({ id, width, height }) => {
+            if (current[id]?.width !== width || current[id]?.height !== height) {
+              next = next === current ? { ...current } : next;
+              next[id] = { width, height };
+            }
+          });
+          return next;
+        });
+      }
 
       removeChanges.forEach((change) => {
         onDeleteNode(change.id);
@@ -582,6 +606,7 @@ export function GraphCanvas({
     if (previousConfigPath.current !== configPath) {
       previousConfigPath.current = configPath;
       setNodePositions(savedLayout);
+      setNodeDimensions({});
       setFlowErrors([]);
       fittedConfigPath.current = null;
     }
