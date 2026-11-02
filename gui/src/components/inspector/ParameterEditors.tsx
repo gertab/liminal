@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { FieldStatusBadge } from "./InspectorPrimitives";
+import { ScenarioPicker } from "../shopfloor/ScenarioPicker";
 import {
   FieldKind,
   FieldSpec,
@@ -106,7 +107,9 @@ export function ParameterRow({
       </div>
       <FieldStatusBadge status={status} note={statusNote} />
       {fieldSpec?.help && <p className="parameter-help">{fieldSpec.help}</p>}
-      {fieldKind === "enum" ? (
+      {fieldSpec?.renderer === "shopfloor_scenario" ? (
+        <ScenarioPicker value={draftValue} onChange={setDraftValue} />
+      ) : fieldKind === "enum" ? (
         <select value={draftValue} onChange={(event) => setDraftValue(event.target.value)}>
           {options.map((option) => (
             <option key={option} value={option}>

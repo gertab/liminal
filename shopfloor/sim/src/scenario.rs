@@ -946,7 +946,7 @@ mod tests {
 
     #[test]
     fn bundled_scenarios_are_valid() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scenarios");
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/shopfloor");
         let mut count = 0;
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();

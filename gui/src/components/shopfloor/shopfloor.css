@@ -622,3 +622,31 @@
   padding: 0 0 12px;
   border-bottom: 0;
 }
+
+/* Scenario picker for the shopfloor input's `scenario` parameter (inspector). */
+.scenario-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.scenario-picker select {
+  flex: 1;
+  min-width: 0;
+}
+
+.scenario-picker-browse {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.scenario-picker-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #ef6b6b;
+  font-size: 12px;
+}

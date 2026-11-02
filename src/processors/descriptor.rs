@@ -143,14 +143,18 @@ pub fn processor_descriptors() -> Vec<ProcessorDescriptor> {
                           Drawn live on the canvas and controlled from the inspector."
                 .to_string(),
             fields: vec![
-                field(
-                    "scenario",
-                    "Scenario",
-                    FieldKind::String,
-                    true,
-                    Some("shopfloor/scenarios/default.toml"),
-                    &[],
-                    "Scenario file (layout, sensors, actions, scenes), relative to the working directory.",
+                field_with_renderer(
+                    field(
+                        "scenario",
+                        "Scenario",
+                        FieldKind::String,
+                        true,
+                        Some("config/shopfloor/default.toml"),
+                        &[],
+                        "Scenario file (layout, sensors, actions, scenes), relative to the working \
+                         directory. Scenario files live in config/shopfloor/.",
+                    ),
+                    "shopfloor_scenario",
                 ),
                 field(
                     "scene",
@@ -463,6 +467,12 @@ fn field(
         status: FieldStatus::Stable,
         status_note: None,
     }
+}
+
+/// A field edited with a custom GUI editor (`ParameterEditors.tsx`) but no nested schema.
+fn field_with_renderer(mut field: FieldSpec, renderer: &'static str) -> FieldSpec {
+    field.renderer = Some(renderer.to_string());
+    field
 }
 
 fn field_with_schema(
@@ -995,6 +1005,24 @@ mod tests {
         sorted_names.sort();
 
         assert_eq!(names, sorted_names);
+    }
+
+    #[test]
+    fn shopfloor_scenario_uses_the_scenario_picker() {
+        let descriptor = processor_descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.type_name == "shopfloor")
+            .expect("shopfloor descriptor exists");
+        let scenario = descriptor
+            .fields
+            .iter()
+            .find(|field| field.key == "scenario")
+            .expect("scenario field exists");
+        assert_eq!(scenario.renderer.as_deref(), Some("shopfloor_scenario"));
+        assert_eq!(
+            scenario.default_value.as_deref(),
+            Some("config/shopfloor/default.toml")
+        );
     }
 
     #[test]

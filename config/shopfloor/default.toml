@@ -5,7 +5,7 @@
 # Free-standing sensors are top-level [sensors.<id>] tables with a fixed position.
 # Unknown keys are errors. See shopfloor/README.md for the full reference.
 
-name = "Default cell"
+name = "Default shopfloor"
 
 [sim]
 tick_ms = 20             # fixed engine step
@@ -205,8 +205,8 @@ type = "stdout"
 type = "tcp"
 bind = "127.0.0.1:9000"
 
-# Record every event to a file (relative to this scenario file). `recordings/` is git-ignored.
+# Record every event to a file (relative to this scenario file). `shopfloor/recordings/` is git-ignored.
 # [output.sinks.recording]
 # type = "jsonl"
-# path = "../recordings/session.jsonl"
+# path = "../../shopfloor/recordings/session.jsonl"
 # append = true

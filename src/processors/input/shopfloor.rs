@@ -11,7 +11,7 @@
 //! [inputs.floor]
 //! type = "shopfloor"
 //! output = "shopfloor_events"
-//! parameters = { scenario = "shopfloor/scenarios/default.toml", scene = "production" }
+//! parameters = { scenario = "config/shopfloor/default.toml", scene = "production" }
 //! ```
 
 use crate::config::{
@@ -244,7 +244,7 @@ mod tests {
     use serde_json::{Value, json};
     use std::collections::HashMap;
 
-    const SCENARIO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/shopfloor/scenarios/default.toml");
+    const SCENARIO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/config/shopfloor/default.toml");
 
     fn stage_config(scene: Option<&str>) -> StageConfig {
         let mut parameters = HashMap::new();

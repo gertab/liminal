@@ -12,7 +12,7 @@ manipulators (MMs)**. Both can carry **sensors**, and sensors can also stand on 
 
 The folder holds:
 - the simulation engine (`sim/`, used by Liminal's `shopfloor` input);
-- the scenario files (`scenarios/`);
+- the scenario files, which live with the other configs in [config/shopfloor/](../config/shopfloor/);
 - a `shopfloor` command-line tool that runs scenarios without Liminal, e.g. to record data or to stream to a separate
   Liminal over TCP.
 
@@ -22,12 +22,12 @@ The folder holds:
 [inputs.floor]
 type = "shopfloor"
 output = "shopfloor_events"
-parameters = { scenario = "shopfloor/scenarios/default.toml", scene = "production" }
+parameters = { scenario = "config/shopfloor/default.toml", scene = "production" }
 ```
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `scenario` | required | Scenario file, relative to the working directory (the repo root when the GUI runs the pipeline). |
+| `scenario` | required | Scenario file, relative to the working directory (the repo root when the GUI runs the pipeline). Scenario files live in [config/shopfloor/](../config/shopfloor/). |
 | `scene` | none | Scene to play as soon as the pipeline starts. |
 | `view_interval_ms` | 100 | How often the live floor is sent to the GUI. |
 
@@ -46,6 +46,9 @@ The shopfloor input's node on the canvas is wider than the others and **draws th
 - before Run, the start positions;
 - while the pipeline runs, live, with a status line (sim time, scene and iteration);
 - after Stop, the last frame.
+
+To change the scenario, use **Parameters → Scenario** in the inspector. It lists the files in `config/shopfloor/`,
+and **Browse…** opens a file picker there for any other file. Save applies it, and the floor redraws.
 
 Selecting the node shows a **Shopfloor** section at the top of the inspector. Its controls act on the running pipeline,
 so they are disabled until you press Run.
@@ -85,10 +88,10 @@ scenario's `[output.sinks]`, and logs go to stderr.
 
 ```bash
 cd shopfloor
-cargo run -p shopfloor-cli -- check scenarios/default.toml                         # validate + list contents
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production        # real time, until Ctrl+C
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene vibration_fault   # ends when the scene ends
-cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production \
+cargo run -p shopfloor-cli -- check ../config/shopfloor/default.toml                         # validate + list contents
+cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene production        # real time, until Ctrl+C
+cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene vibration_fault   # ends when the scene ends
+cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene production \
     --fast --duration 600 --jsonl recordings/production.jsonl                      # 10 min of data in < 1 s
 ```
 
@@ -117,7 +120,6 @@ cd gui && npm run build                  # the GUI, including the shopfloor node
 shopfloor/
   sim/          shopfloor-sim: the engine (pure Rust). Tests live here.
   cli/          shopfloor-cli: the `shopfloor` command (runs scenarios without Liminal)
-  scenarios/    scenario files (TOML)
   docs/         design notes
 
 src/processors/input/shopfloor.rs      Liminal's `shopfloor` input (embeds the engine)
@@ -171,7 +173,7 @@ TOML, in metres and seconds.
 - Heading 0 is +x, counter-clockwise.
 - **Unknown keys are errors.** All validation errors are reported together.
 
-See [scenarios/default.toml](scenarios/default.toml) for a commented example.
+See [config/shopfloor/default.toml](../config/shopfloor/default.toml) for a commented example.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -283,7 +285,7 @@ is a ready-made pipeline:
 
 ```bash
 # terminal 1: shopfloor
-cd shopfloor && cargo run -p shopfloor-cli -- run scenarios/default.toml --scene production
+cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/default.toml --scene production
 # terminal 2: Liminal (or open the config in the Liminal GUI and press Run)
 cargo run -- --config config/examples/config_shopfloor_tcp.toml
 ```

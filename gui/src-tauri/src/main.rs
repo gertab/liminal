@@ -16,7 +16,9 @@ use commands::files::{
 use commands::runtime::{
     pipeline_runtime_state, send_stage_command, start_pipeline, stop_pipeline, PipelineRuntime,
 };
-use commands::shopfloor::load_shopfloor_scenario;
+use commands::shopfloor::{
+    list_shopfloor_scenarios, load_shopfloor_scenario, pick_shopfloor_scenario,
+};
 
 #[cfg(test)]
 use commands::runtime::preflight_processors;
@@ -52,6 +54,8 @@ fn main() {
             pipeline_runtime_state,
             send_stage_command,
             load_shopfloor_scenario,
+            list_shopfloor_scenarios,
+            pick_shopfloor_scenario,
             list_workspace_configs,
             pick_config_file,
             pick_workspace_folder,
@@ -920,7 +924,7 @@ inputs = ["raw_data"]
 
     #[test]
     fn shopfloor_layout_loads_the_bundled_scenario() {
-        let path = crate::commands::shopfloor::resolve_scenario_path("shopfloor/scenarios/default.toml");
+        let path = crate::commands::shopfloor::resolve_scenario_path("config/shopfloor/default.toml");
         assert!(path.is_absolute());
         let layout = crate::commands::shopfloor::load_layout(&path).expect("default scenario loads");
         let json = serde_json::to_value(&layout).expect("layout serialises");
@@ -932,6 +936,24 @@ inputs = ["raw_data"]
             .err()
             .expect("missing scenario is an error");
         assert!(missing.contains("/nope/missing.toml"), "{missing}");
+    }
+
+    #[test]
+    fn shopfloor_scenarios_are_listed_and_paths_made_relative() {
+        let scenarios = crate::commands::shopfloor::list_shopfloor_scenarios().expect("scenarios listed");
+        assert!(
+            scenarios.contains(&"config/shopfloor/default.toml".to_string()),
+            "{scenarios:?}"
+        );
+        let absolute = crate::paths::repo_root().join("config/shopfloor/default.toml");
+        assert_eq!(
+            crate::commands::shopfloor::scenario_parameter_path(&absolute),
+            "config/shopfloor/default.toml"
+        );
+        assert_eq!(
+            crate::commands::shopfloor::scenario_parameter_path(Path::new("/elsewhere/s.toml")),
+            "/elsewhere/s.toml"
+        );
     }
 
     #[test]
