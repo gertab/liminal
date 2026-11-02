@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Braces, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { Braces, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { KIND_LABELS, describeEvent, eventEntity, formatSimTime } from "../../format";
 import { EVENT_KINDS } from "../../types";
@@ -20,9 +20,11 @@ interface EventLogProps {
 export function EventLog({ scenario, events, counts, collapsed, onToggleCollapsed, onClear }: EventLogProps) {
   const [hiddenKinds, setHiddenKinds] = useState<Set<EventKind>>(new Set());
   const [entity, setEntity] = useState<string>("all");
-  const [follow, setFollow] = useState(true);
   const [raw, setRaw] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Like a terminal: new events keep the log scrolled to the bottom, unless you scrolled up to
+  // read older ones; scrolling back to the bottom follows again.
+  const followRef = useRef(true);
 
   const entities = useMemo(
     () => [
@@ -43,10 +45,10 @@ export function EventLog({ scenario, events, counts, collapsed, onToggleCollapse
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
-    if (follow && element) {
+    if (followRef.current && element) {
       element.scrollTop = element.scrollHeight;
     }
-  }, [rows, follow]);
+  }, [rows]);
 
   const toggleKind = (kind: EventKind) =>
     setHiddenKinds((previous) => {
@@ -95,14 +97,6 @@ export function EventLog({ scenario, events, counts, collapsed, onToggleCollapse
             >
               <Braces size={14} />
             </button>
-            <button
-              type="button"
-              className={`icon-button${follow ? " is-active" : ""}`}
-              onClick={() => setFollow((value) => !value)}
-              title="Follow new events"
-            >
-              <ArrowDownToLine size={14} />
-            </button>
             <button type="button" className="icon-button" onClick={onClear} title="Clear the log">
               <Trash2 size={14} />
             </button>
@@ -110,7 +104,14 @@ export function EventLog({ scenario, events, counts, collapsed, onToggleCollapse
         )}
       </header>
       {!collapsed && (
-        <div className="event-rows" ref={scrollRef}>
+        <div
+          className="event-rows"
+          ref={scrollRef}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            followRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
+          }}
+        >
           {rows.map((event) =>
             raw ? (
               <div key={event.seq} className="event-row raw">
