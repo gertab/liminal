@@ -454,13 +454,20 @@ function pruneRuntimeMessageActivity(
   nowMs: number,
 ): RuntimeMessageActivity {
   const cutoff = nowMs - runtimeActivityTtlMs;
+  const stageIds = Object.entries(activity.stageIds).filter(([, timestampMs]) => timestampMs >= cutoff);
+  const channelNames = Object.entries(activity.channelNames).filter(
+    ([, timestampMs]) => timestampMs >= cutoff,
+  );
+  // Keep the same object when nothing expired, so this 500 ms timer doesn't re-render the canvas.
+  if (
+    stageIds.length === Object.keys(activity.stageIds).length &&
+    channelNames.length === Object.keys(activity.channelNames).length
+  ) {
+    return activity;
+  }
   return {
-    stageIds: Object.fromEntries(
-      Object.entries(activity.stageIds).filter(([, timestampMs]) => timestampMs >= cutoff),
-    ),
-    channelNames: Object.fromEntries(
-      Object.entries(activity.channelNames).filter(([, timestampMs]) => timestampMs >= cutoff),
-    ),
+    stageIds: Object.fromEntries(stageIds),
+    channelNames: Object.fromEntries(channelNames),
   };
 }
 
