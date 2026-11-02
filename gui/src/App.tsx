@@ -8,6 +8,7 @@ import {
   KeyValue,
 } from "./components/inspector/InspectorPrimitives";
 import { InspectorPanel } from "./components/inspector/InspectorPanel";
+import { ScenarioPicker } from "./components/shopfloor/ScenarioPicker";
 import { ShopfloorProvider } from "./components/shopfloor/ShopfloorContext";
 import { useRuntimeLogs } from "./hooks/useRuntimeLogs";
 import {
@@ -634,6 +635,7 @@ function App() {
       nodeName: string,
       processorCategory: ProcessorCategory,
       pipelineName: string | null,
+      parameters?: Record<string, string>,
     ) => {
       if (draftContent === null) {
         setError("No editable draft is loaded.");
@@ -650,6 +652,7 @@ function App() {
           processorType,
           nodeName,
           pipelineName,
+          parameters: parameters && Object.keys(parameters).length > 0 ? parameters : null,
         });
         applyDraftEdit(edit, nodeIdForNewNode(processorCategory, nodeName, pipelineName));
       } catch (caught) {
@@ -1343,6 +1346,7 @@ function AddNodePanel({
     nodeName: string,
     processorCategory: ProcessorCategory,
     pipelineName: string | null,
+    parameters?: Record<string, string>,
   ) => Promise<void>;
 }) {
   const descriptors = useMemo(
@@ -1357,8 +1361,13 @@ function AddNodePanel({
   const [processorType, setProcessorType] = useState("");
   const [nodeName, setNodeName] = useState("");
   const [pipelineName, setPipelineName] = useState("");
+  // Values for fields that are chosen while adding (e.g. a shopfloor scenario), keyed by field.
+  const [parameterValues, setParameterValues] = useState<Record<string, string>>({});
   const selectedDescriptor =
     descriptors.find((descriptor) => descriptor.type_name === processorType) ?? descriptors[0] ?? null;
+  const addTimeFields = (selectedDescriptor?.fields ?? []).filter(
+    (field) => field.renderer === "shopfloor_scenario",
+  );
   const pipelineOptions = useMemo(() => pipelineNames(graph), [graph]);
   const needsPipeline =
     selectedDescriptor?.category === "transform" || selectedDescriptor?.category === "aggregator";
@@ -1385,6 +1394,10 @@ function AddNodePanel({
   }, [graph, selectedDescriptor?.type_name]);
 
   useEffect(() => {
+    setParameterValues({});
+  }, [selectedDescriptor?.type_name]);
+
+  useEffect(() => {
     setPipelineName((currentName) => currentName || pipelineOptions[0] || "default_pipeline");
   }, [pipelineOptions]);
 
@@ -1409,6 +1422,7 @@ function AddNodePanel({
             normalizedNodeName,
             selectedDescriptor.category,
             needsPipeline ? normalizedPipelineName : null,
+            parameterValues,
           );
         }}
       >
@@ -1435,6 +1449,15 @@ function AddNodePanel({
             aria-label="New node name"
           />
         </label>
+        {addTimeFields.map((field) => (
+          <label key={field.key}>
+            <span>{field.label}</span>
+            <ScenarioPicker
+              value={parameterValues[field.key] ?? field.default_value ?? ""}
+              onChange={(path) => setParameterValues((values) => ({ ...values, [field.key]: path }))}
+            />
+          </label>
+        ))}
         {needsPipeline && (
           <label>
             <span>Pipeline</span>

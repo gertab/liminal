@@ -2,6 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 
+const SCENARIO_FOLDER = "config/shopfloor/";
+
+/** Files in the scenario folder are listed by name; anything else by its full path. */
+function scenarioLabel(path: string) {
+  return path.startsWith(SCENARIO_FOLDER) ? path.slice(SCENARIO_FOLDER.length) : path;
+}
+
 interface ScenarioPickerProps {
   value: string;
   onChange: (path: string) => void;
@@ -29,8 +36,8 @@ export function ScenarioPicker({ value, onChange }: ScenarioPickerProps) {
       <select value={value} onChange={(event) => onChange(event.target.value)} title={value}>
         {!value && <option value="">Choose a scenario…</option>}
         {options.map((path) => (
-          <option key={path} value={path}>
-            {path}
+          <option key={path} value={path} title={path}>
+            {scenarioLabel(path)}
           </option>
         ))}
       </select>

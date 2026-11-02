@@ -641,7 +641,21 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #2b3d42;
+  border-radius: 6px;
+  color: #dbe8e5;
+  background: #141d20;
+  font-size: 12px;
+  font-weight: 700;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.scenario-picker-browse:hover {
+  border-color: #53c7b6;
+  color: #53c7b6;
 }
 
 .scenario-picker-error {

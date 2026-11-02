@@ -75,6 +75,8 @@ pub(crate) fn add_node_draft(
     processor_type: String,
     node_name: String,
     pipeline_name: Option<String>,
+    // Values chosen in the Add Node form (e.g. a shopfloor scenario), replacing the defaults.
+    parameters: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<DraftEditResult, String> {
     let descriptor = descriptor_for_type(&processor_type)?;
     let node_name = node_name.trim();
@@ -87,7 +89,33 @@ pub(crate) fn add_node_draft(
         node_name,
         pipeline_name.as_deref(),
     )?;
+    if let Some(parameters) = parameters {
+        let node_id = new_node_id(&descriptor, node_name, pipeline_name.as_deref());
+        for (key, value) in parameters {
+            update_existing_parameter(&mut document, &node_id, &key, &value)?;
+        }
+    }
     draft_result_from_document(document)
+}
+
+/// Graph id of a node added with `add_node_to_document` (same pipeline default).
+pub(crate) fn new_node_id(
+    descriptor: &liminal::processors::descriptor::ProcessorDescriptor,
+    node_name: &str,
+    pipeline_name: Option<&str>,
+) -> String {
+    use liminal::processors::descriptor::ProcessorCategory;
+    match descriptor.category {
+        ProcessorCategory::Input => format!("input:{node_name}"),
+        ProcessorCategory::Output => format!("output:{node_name}"),
+        ProcessorCategory::Transform | ProcessorCategory::Aggregator => {
+            let pipeline = pipeline_name
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or("default_pipeline");
+            format!("pipeline:{pipeline}.stage:{node_name}")
+        }
+    }
 }
 
 #[tauri::command]

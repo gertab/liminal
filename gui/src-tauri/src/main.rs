@@ -957,6 +957,26 @@ inputs = ["raw_data"]
     }
 
     #[test]
+    fn added_nodes_can_take_parameters_from_the_add_node_form() {
+        let content = "[inputs]\n";
+        let edit = crate::commands::draft::add_node_draft(
+            content.to_string(),
+            "shopfloor".to_string(),
+            "floor".to_string(),
+            None,
+            Some(std::collections::BTreeMap::from([(
+                "scenario".to_string(),
+                "config/shopfloor/other.toml".to_string(),
+            )])),
+        )
+        .expect("shopfloor node added");
+        let config = toml::from_str::<Config>(&edit.content).expect("edited config parses");
+        let parameters = config.inputs["floor"].parameters.clone().expect("parameters set");
+        assert_eq!(parameters["scenario"], serde_json::json!("config/shopfloor/other.toml"));
+        assert_eq!(parameters["scene"], serde_json::json!("production"), "other defaults kept");
+    }
+
+    #[test]
     fn stage_commands_are_written_as_json_lines() {
         let mut written = Vec::new();
         crate::commands::runtime::write_stage_command(

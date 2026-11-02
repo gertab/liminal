@@ -1,0 +1,66 @@
+
+[pipelines.shopfloor]
+description = "Split the shopfloor stream: MM activity, sensor readings, vibration alerts"
+
+# Sensor readings only.
+[pipelines.shopfloor.stages.sensors]
+type = "rule"
+inputs = ["shopfloor_testinggg_data"]
+output = "sensor_readings"
+
+[[pipelines.shopfloor.stages.sensors.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+# Vibration readings above 1.0 g, flagged and trimmed.
+[pipelines.shopfloor.stages.vibration_alerts]
+type = "rule"
+inputs = ["sensor_readings"]
+output = "vibration_alerts"
+
+[[pipelines.shopfloor.stages.vibration_alerts.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "vibration" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.shopfloor.stages.vibration_alerts.parameters.rules]]
+condition = { field_path = "value", operation = ">", value = 1.0 }
+actions = [
+    { type = "set_field", field_path = "alert", value = "high vibration" },
+    { type = "keep_only_fields", field_paths = ["ts", "sensor", "entity", "value", "unit", "x", "y", "alert"] },
+]
+else_actions = [{ type = "drop_message" }]
+
+# What the mobile manipulators and scenes do: everything except positions and sensor readings.
+[pipelines.shopfloor.stages.mm_activity]
+type = "rule"
+inputs = ["shopfloor_testinggg_data"]
+output = "mm_activity"
+
+[[pipelines.shopfloor.stages.mm_activity.parameters.rules]]
+condition = { field_path = "kind", operation = "equals", value = "position" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.shopfloor.stages.mm_activity.parameters.rules]]
+condition = { field_path = "kind", operation = "equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[pipelines.shopfloor.stages.rule]
+type = "rule"
+inputs = ["shopfloor_testinggg_data"]
+output = "rule_data"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "pass_through" }], else_actions = [] }], error_strategy = "skip" }
+
+[outputs.shopfloor_log]
+type = "console"
+inputs = ["mm_activity", "vibration_alerts"]
+
+[outputs.consoleeee]
+type = "console"
+inputs = ["rule_data"]
+
+[inputs]
+
+[inputs.shopfloor_testinggg]
+type = "shopfloor"
+output = "shopfloor_testinggg_data"
+parameters = { scenario = "config/shopfloor/testing-floor.toml", scene = "production", view_interval_ms = 100 }
