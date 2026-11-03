@@ -58,7 +58,7 @@ export function ShopfloorInspector({ node }: { node: GraphNode }) {
           world={world}
           selectedMm={shopfloor.selectedMm}
           focus={shopfloor.focus}
-          lastActions={{}}
+          lastActions={shopfloor.lastActions}
           onSelectMm={(id) => shopfloor.selectMm(shopfloor.selectedMm === id ? null : id)}
           onFocusSensor={(id) => shopfloor.setFocus({ type: "sensor", id })}
           send={(command) => shopfloor.send({ command })}

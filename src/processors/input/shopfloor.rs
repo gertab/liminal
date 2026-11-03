@@ -3,7 +3,8 @@
 //!
 //! - Every simulation event (positions, moves, actions, sensor readings, scenes…) is published as
 //!   one message whose payload is the event's JSON (`kind`, `entity`, …; see shopfloor/README.md).
-//! - A snapshot of the world is published for the GUI as a `processor_view` runtime event.
+//! - A snapshot of the world, plus each MM's last action, is published for the GUI as a
+//!   `processor_view` runtime event.
 //! - The stage accepts commands (`{"command": {...}}` / `{"control": ...}`), so the GUI can drive
 //!   the mobile manipulators, sensors and scenes while the pipeline runs.
 //!
@@ -23,9 +24,12 @@ use crate::processors::Processor;
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
+use shopfloor_sim::event::Lifecycle;
 use shopfloor_sim::runtime::now_ms;
-use shopfloor_sim::{Control, Engine, Origin, Request, Scenario, SimEvent, load_scenario};
-use std::collections::VecDeque;
+use shopfloor_sim::{
+    Control, Engine, EventBody, Origin, Request, Scenario, SimEvent, load_scenario,
+};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -73,6 +77,8 @@ pub struct ShopfloorInputProcessor {
     /// Events not yet published. `process` publishes the front one and only removes it once the
     /// publish completed, so an interrupted `process` (e.g. by a command) loses nothing.
     outbox: VecDeque<SimEvent>,
+    /// Latest action of each MM, for the GUI. Actions are silent, so the world doesn't record them.
+    last_actions: BTreeMap<String, SimEvent>,
     last_view: Option<Instant>,
     timing: TimingMixin,
 }
@@ -89,6 +95,7 @@ impl ShopfloorInputProcessor {
             engine: None,
             ticker: None,
             outbox: VecDeque::new(),
+            last_actions: BTreeMap::new(),
             last_view: None,
             timing,
         }))
@@ -100,9 +107,26 @@ impl ShopfloorInputProcessor {
             .ok_or_else(|| anyhow!("{}: simulation not initialised", self.name))
     }
 
+    /// Queues events for publishing, noting what the GUI's view needs from them.
+    fn queue(&mut self, events: Vec<SimEvent>) {
+        for event in &events {
+            match &event.body {
+                EventBody::Action { entity, .. } => {
+                    self.last_actions.insert(entity.clone(), event.clone());
+                }
+                EventBody::Sim { state: Lifecycle::Reset, .. } => self.last_actions.clear(),
+                _ => {}
+            }
+        }
+        self.outbox.extend(events);
+    }
+
     fn emit_view(&mut self, context: &ProcessingContext) {
         if let Some(engine) = &self.engine {
-            context.emit_view(serde_json::json!({ "state": engine.state() }));
+            context.emit_view(serde_json::json!({
+                "state": engine.state(),
+                "last_actions": self.last_actions,
+            }));
             self.last_view = Some(Instant::now());
         }
     }
@@ -155,10 +179,9 @@ impl Processor for ShopfloorInputProcessor {
 
         let mut engine = Engine::new(Arc::clone(&scenario));
         let ts = now_ms();
-        self.outbox.extend(engine.start(ts));
-        if let Some(scene) = &self.config.scene {
-            self.outbox
-                .extend(engine.control(Control::PlayScene(scene.clone()), ts)?);
+        self.queue(engine.start(ts));
+        if let Some(scene) = self.config.scene.clone() {
+            self.queue(engine.control(Control::PlayScene(scene), ts)?);
         }
         let mut ticker = tokio::time::interval(Duration::from_millis(scenario.sim.tick_ms));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -193,7 +216,7 @@ impl Processor for ShopfloorInputProcessor {
             .tick()
             .await;
         let events = self.engine()?.step(now_ms());
-        self.outbox.extend(events);
+        self.queue(events);
 
         let view_due = self.last_view.is_none_or(|last| {
             last.elapsed() >= Duration::from_millis(self.config.view_interval_ms)
@@ -216,7 +239,7 @@ impl Processor for ShopfloorInputProcessor {
         let request: Request = serde_json::from_value(command)
             .context("expected {\"command\": {...}} or {\"control\": ...}")?;
         let events = self.engine()?.request(request, Origin::Ui, now_ms())?;
-        self.outbox.extend(events);
+        self.queue(events);
         // Show the effect right away rather than at the next view.
         self.emit_view(context);
         Ok(())
@@ -375,6 +398,48 @@ mod tests {
             .await
             .unwrap_err();
         assert!(format!("{error:#}").contains("expected"), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn the_view_carries_the_last_action_of_each_mm() {
+        fn last_view(harness: &Harness) -> Value {
+            let events = harness.observer.events();
+            let view = events
+                .iter()
+                .rev()
+                .find(|event| event.kind == RuntimeEventKind::ProcessorView)
+                .expect("a processor_view event");
+            view.data.clone().unwrap()
+        }
+
+        let mut harness = harness(None).await;
+        for (mm, action) in [("mm1", "pick"), ("mm2", "inspect"), ("mm1", "place")] {
+            harness
+                .processor
+                .handle_command(
+                    json!({"command": {"type": "perform", "mm": mm, "action": action}}),
+                    &mut harness.context,
+                )
+                .await
+                .unwrap();
+        }
+        let view = last_view(&harness);
+        let last_actions = &view["last_actions"];
+        assert_eq!(last_actions["mm1"]["action"], "place", "the latest one per MM");
+        assert_eq!(last_actions["mm1"]["kind"], "action");
+        assert_eq!(last_actions["mm1"]["at"], "machine1");
+        assert_eq!(last_actions["mm2"]["action"], "inspect");
+        assert!(
+            last_actions["mm1"]["command_id"].as_u64() > Some(0),
+            "the GUI keys its flash on the command id"
+        );
+
+        harness
+            .processor
+            .handle_command(json!({"control": "reset"}), &mut harness.context)
+            .await
+            .unwrap();
+        assert_eq!(last_view(&harness)["last_actions"], json!({}), "a reset forgets them");
     }
 
     #[tokio::test]

@@ -31,4 +31,4 @@ parameters = { format = "json", append = true, create_dirs = true, buffer_size =
 [inputs.shopfloor_sample_2]
 type = "shopfloor"
 output = "shopfloor_sample_2_out"
-parameters = { scenario = "config/shopfloor/testing-floor.toml", scene = "production", view_interval_ms = 100 }
+parameters = { scenario = "config/shopfloor/testing-floor.toml", scene = "encaser_to_deflasher", view_interval_ms = 100 }

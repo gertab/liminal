@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { GraphNode, ResolvedPipelineGraph } from "../../types";
 import type { RuntimeState } from "../runtime-console/RuntimeConsole";
 import type { Focus } from "./FloorView";
-import type { ShopfloorLayout, ShopfloorRequest, WorldState } from "./types";
+import type { ActionEvent, ShopfloorLayout, ShopfloorRequest, WorldState } from "./types";
 import "./shopfloor.css";
 
 /**
@@ -127,6 +127,8 @@ export interface ShopfloorStage {
   world: WorldState | null;
   /** Whether `world` comes from the running (or last) pipeline rather than the start state. */
   live: boolean;
+  /** Latest action of each MM: the floor flashes it, the MM's card lists it. */
+  lastActions: Record<string, ActionEvent>;
   running: boolean;
   selectedMm: string | null;
   focus: Focus;
@@ -143,7 +145,9 @@ export function useShopfloorStage(node: GraphNode): ShopfloorStage | null {
   const stage = stageNameOf(node);
   const scenarioPath = scenarioPathOf(node);
   const entry = scenarioPath ? context.layouts[scenarioPath] : undefined;
-  const view = context.views[stage] as { state?: WorldState } | undefined;
+  const view = context.views[stage] as
+    | { state?: WorldState; last_actions?: Record<string, ActionEvent> }
+    | undefined;
   const liveWorld = view?.state ?? null;
   const selection = context.selections[stage] ?? { selectedMm: null, focus: null };
   return {
@@ -153,6 +157,7 @@ export function useShopfloorStage(node: GraphNode): ShopfloorStage | null {
     error: scenarioPath ? (entry?.error ?? null) : "Set the `scenario` parameter to a scenario file.",
     world: liveWorld ?? entry?.layout?.state ?? null,
     live: liveWorld !== null,
+    lastActions: view?.last_actions ?? {},
     running: context.running,
     selectedMm: selection.selectedMm,
     focus: selection.focus,

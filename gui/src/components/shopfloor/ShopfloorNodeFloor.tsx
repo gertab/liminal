@@ -60,7 +60,7 @@ export function ShopfloorNodeFloor({ node, onSelectNode }: ShopfloorNodeFloorPro
           world={world}
           selectedMm={shopfloor.selectedMm}
           focus={shopfloor.focus}
-          lastActions={{}}
+          lastActions={shopfloor.lastActions}
           onSelectMm={(id) => shopfloor.selectMm(shopfloor.selectedMm === id ? null : id)}
           onFloorClick={(point) => {
             if (!point || !selectedDef) {
