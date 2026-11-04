@@ -190,6 +190,25 @@ steps = [
   { set_sensor = { sensor = "mm1.vibration", value = 0.1 } },
 ]
 
+# mm1 carries parts from the Encaser to the Deflasher, over and over. Each iteration starts by going
+# back to the Encaser (mm1 starts there, so the first move is immediate).
+[scenes.encaser_to_deflasher]
+label = "Encaser to Deflasher"
+loop = true
+
+[[scenes.encaser_to_deflasher.tracks]]
+name = "mm1 shuttle"
+steps = [
+  { move_to = { mm = "mm1", machine = "machine1" } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "pick" } },
+  { wait_ms = 1500 },
+  { move_to = { mm = "mm1", machine = "machine2" } },
+  { wait_idle = "mm1" },
+  { perform = { mm = "mm1", action = "place" } },
+  { wait_ms = 1500 },
+]
+
 # --- Output -----------------------------------------------------------------------------------
 
 [output]
