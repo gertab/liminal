@@ -1,0 +1,79 @@
+# Container port → Liminal over TCP
+#
+# Consumes the event stream of config/shopfloor/container-port.toml (see shopfloor/README.md). The simulator
+# listens on 127.0.0.1:9000; this pipeline connects to it and reconnects whenever the simulator restarts,
+# so either side can start first.
+#
+#   cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/container-port.toml --scene high_wind
+#   cargo run -- --config config/examples/config_shopfloor_port_tcp.toml
+#
+# (or open the scenario in the shopfloor app and play a scene there, and run this config from the Liminal GUI).
+
+[inputs.port]
+type = "tcp_input"
+output = "port_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.port]
+description = "Wind and gate alerts, and the containers moving around the terminal"
+
+# Wind above the 20 m/s limit for crane work, trimmed and flagged. Within a rule, `keep_only_fields` always
+# runs before `set_field`, so `alert` doesn't need listing.
+[pipelines.port.stages.wind_alerts]
+type = "rule"
+inputs = ["port_events"]
+output = "wind_alerts"
+
+[[pipelines.port.stages.wind_alerts.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.port.stages.wind_alerts.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "wind_speed" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.port.stages.wind_alerts.parameters.rules]]
+condition = { field_path = "value", operation = ">", value = 20.0 }
+actions = [
+    { type = "set_field", field_path = "alert", value = "wind above crane limit" },
+    { type = "keep_only_fields", field_paths = ["ts", "entity", "value", "unit"] },
+]
+else_actions = [{ type = "drop_message" }]
+
+# More than 20 trucks waiting at the gate.
+[pipelines.port.stages.gate_congestion]
+type = "rule"
+inputs = ["port_events"]
+output = "gate_congestion"
+
+[[pipelines.port.stages.gate_congestion.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.port.stages.gate_congestion.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "truck_queue" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.port.stages.gate_congestion.parameters.rules]]
+condition = { field_path = "value", operation = ">", value = 20.0 }
+actions = [
+    { type = "set_field", field_path = "alert", value = "gate congested" },
+    { type = "keep_only_fields", field_paths = ["ts", "entity", "value", "unit"] },
+]
+else_actions = [{ type = "drop_message" }]
+
+# Containers being loaded and unloaded, trimmed.
+[pipelines.port.stages.container_moves]
+type = "rule"
+inputs = ["port_events"]
+output = "container_moves"
+
+[[pipelines.port.stages.container_moves.parameters.rules]]
+condition = { field_path = "kind", operation = "equals", value = "action" }
+actions = [{ type = "keep_only_fields", field_paths = ["ts", "entity", "action", "at"] }]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.port_log]
+type = "console"
+inputs = ["wind_alerts", "gate_congestion", "container_moves"]
