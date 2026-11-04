@@ -183,13 +183,32 @@ export function FloorView({
             sy={sy}
             scale={scale}
             selected={def.id === selectedMm}
-            lastAction={lastActions[def.id]}
             sensorDefs={sensorDefs}
             sensorViews={sensorViews}
             focusedSensor={focus?.type === "sensor" ? focus.id : null}
             onClick={() => onSelectMm(def.id)}
             onSensorClick={onSensorClick}
           />
+        ) : null;
+      })}
+
+      {/*
+        Not inside the MM's group: in order to avoid issues in WebKit
+      */}
+      {scenario.mobile_manipulators.map((def) => {
+        const view = mmViews.get(def.id);
+        const action = lastActions[def.id];
+        return view && action ? (
+          // Keyed by command id so the fade-out animation restarts for every new action.
+          <text
+            key={action.command_id}
+            x={view.x}
+            y={sy(view.y) - def.radius_m - 0.25 * scale}
+            className="action-flash"
+            textAnchor="middle"
+          >
+            {action.action}
+          </text>
         ) : null;
       })}
 
@@ -366,7 +385,6 @@ interface MobileManipulatorProps {
   sy: (y: number) => number;
   scale: number;
   selected: boolean;
-  lastAction: ActionEvent | undefined;
   sensorDefs: Map<string, SensorDef>;
   sensorViews: Map<string, SensorView>;
   focusedSensor: string | null;
@@ -381,7 +399,6 @@ function MobileManipulator({
   sy,
   scale,
   selected,
-  lastAction,
   sensorDefs,
   sensorViews,
   focusedSensor,
@@ -422,12 +439,6 @@ function MobileManipulator({
       <text x={cx} y={cy + r + (LABEL_SIZE + 0.05) * scale} className="mm-label" textAnchor="middle">
         {def.label}
       </text>
-      {lastAction && (
-        // Keyed by command id so the fade-out animation restarts for every new action.
-        <text key={lastAction.command_id} x={cx} y={cy - r - 0.25 * scale} className="action-flash" textAnchor="middle">
-          {lastAction.action}
-        </text>
-      )}
       <SensorReadouts
         ids={def.sensors}
         x={cx}
