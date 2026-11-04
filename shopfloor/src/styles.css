@@ -256,6 +256,9 @@ h3 {
 
 /* --- Floor (SVG, units are metres) -------------------------------------------------------- */
 
+/* Sizes are for a 20×12 m floor. `--floor-scale`, set by FloorView, keeps them the same size on
+   screen on any floor. */
+
 .floor-svg {
   width: 100%;
   height: 100%;
@@ -280,17 +283,17 @@ h3 {
 .floor {
   fill: var(--floor);
   stroke: var(--border-strong);
-  stroke-width: 0.06;
+  stroke-width: calc(0.06px * var(--floor-scale));
 }
 
 .floor-grid line {
   stroke: var(--floor-grid);
-  stroke-width: 0.02;
+  stroke-width: calc(0.02px * var(--floor-scale));
 }
 
 .axis-label {
   fill: var(--text-muted);
-  font-size: 0.3px;
+  font-size: calc(0.3px * var(--floor-scale));
 }
 
 .machine {
@@ -300,7 +303,7 @@ h3 {
 .machine-body {
   fill: var(--machine);
   stroke: var(--machine-border);
-  stroke-width: 0.05;
+  stroke-width: calc(0.05px * var(--floor-scale));
 }
 
 .machine:hover .machine-body,
@@ -314,26 +317,26 @@ h3 {
 
 .machine-label {
   fill: var(--text);
-  font-size: 0.38px;
+  font-size: calc(0.38px * var(--floor-scale));
   font-weight: 600;
   pointer-events: none;
 }
 
 .dock-link {
   stroke: var(--machine-border);
-  stroke-width: 0.03;
-  stroke-dasharray: 0.1 0.1;
+  stroke-width: calc(0.03px * var(--floor-scale));
+  stroke-dasharray: calc(0.1px * var(--floor-scale)) calc(0.1px * var(--floor-scale));
 }
 
 .dock-marker {
   fill: var(--floor);
   stroke: var(--machine-border);
-  stroke-width: 0.04;
+  stroke-width: calc(0.04px * var(--floor-scale));
 }
 
 .sensor-readout {
   fill: var(--kind-sensor);
-  font-size: 0.28px;
+  font-size: calc(0.28px * var(--floor-scale));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -357,7 +360,7 @@ h3 {
   fill: currentColor;
   fill-opacity: 0.25;
   stroke: currentColor;
-  stroke-width: 0.06;
+  stroke-width: calc(0.06px * var(--floor-scale));
 }
 
 .mm-heading {
@@ -367,8 +370,8 @@ h3 {
 .mm-selection {
   fill: none;
   stroke: currentColor;
-  stroke-width: 0.05;
-  stroke-dasharray: 0.12 0.08;
+  stroke-width: calc(0.05px * var(--floor-scale));
+  stroke-dasharray: calc(0.12px * var(--floor-scale)) calc(0.08px * var(--floor-scale));
 }
 
 .mm.is-selected .mm-base {
@@ -377,7 +380,7 @@ h3 {
 
 .mm-label {
   fill: currentColor;
-  font-size: 0.34px;
+  font-size: calc(0.34px * var(--floor-scale));
   font-weight: 600;
   pointer-events: none;
 }
@@ -385,8 +388,8 @@ h3 {
 .mm-route line,
 .mm-route path {
   stroke: currentColor;
-  stroke-width: 0.04;
-  stroke-dasharray: 0.15 0.1;
+  stroke-width: calc(0.04px * var(--floor-scale));
+  stroke-dasharray: calc(0.15px * var(--floor-scale)) calc(0.1px * var(--floor-scale));
   fill: none;
   pointer-events: none;
 }
@@ -398,7 +401,7 @@ h3 {
 .floor-sensor-marker {
   fill: rgba(180, 140, 255, 0.25);
   stroke: var(--kind-sensor);
-  stroke-width: 0.05;
+  stroke-width: calc(0.05px * var(--floor-scale));
 }
 
 .floor-sensor:hover .floor-sensor-marker,
@@ -408,13 +411,13 @@ h3 {
 
 .floor-sensor-label {
   fill: var(--text-muted);
-  font-size: 0.28px;
+  font-size: calc(0.28px * var(--floor-scale));
   pointer-events: none;
 }
 
 .action-flash {
   fill: var(--kind-action);
-  font-size: 0.36px;
+  font-size: calc(0.36px * var(--floor-scale));
   font-weight: 700;
   pointer-events: none;
   animation: action-flash 1.8s ease-out forwards;
@@ -430,15 +433,15 @@ h3 {
   }
   100% {
     opacity: 0;
-    transform: translateY(-0.5px);
+    transform: translateY(calc(-0.5px * var(--floor-scale)));
   }
 }
 
 .ghost-target {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 0.04;
-  stroke-dasharray: 0.1 0.08;
+  stroke-width: calc(0.04px * var(--floor-scale));
+  stroke-dasharray: calc(0.1px * var(--floor-scale)) calc(0.08px * var(--floor-scale));
   pointer-events: none;
 }
 

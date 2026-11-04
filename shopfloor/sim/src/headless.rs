@@ -179,6 +179,38 @@ mod tests {
         assert_eq!(seqs, (1..=events.len() as u64).collect::<Vec<_>>());
     }
 
+    /// Scenes are only checked for dangling references when they load. An action the MM isn't in a
+    /// position to perform only fails when it is reached, so play them all.
+    #[test]
+    fn every_bundled_scene_plays_without_failing() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/shopfloor");
+        let mut played = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|ext| ext != "toml") {
+                continue;
+            }
+            let scenario = Arc::new(load_scenario(&path).unwrap());
+            for scene in &scenario.scenes {
+                let events = Arc::new(Mutex::new(Vec::new()));
+                let mut sinks: Vec<Box<dyn EventSink>> = vec![Box::new(MemorySink(Arc::clone(&events)))];
+                let run = FastRun {
+                    scene: Some(scene.id.clone()),
+                    max_sim_ms: Some(300_000),
+                    start_ts: 0,
+                };
+                run_fast(Arc::clone(&scenario), &run, &mut sinks).unwrap();
+                let events = events.lock().unwrap();
+                let failure = events.iter().find(|event| {
+                    matches!(&event.body, EventBody::Scene { state: SceneState::Failed, .. })
+                });
+                assert!(failure.is_none(), "{}, scene '{}': {failure:?}", path.display(), scene.id);
+                played += 1;
+            }
+        }
+        assert!(played > 0, "no scenes found in {}", dir.display());
+    }
+
     #[test]
     fn a_one_shot_scene_ends_the_run_when_it_finishes() {
         let (summary, events) = run_collecting(&FastRun {
