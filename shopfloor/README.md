@@ -129,7 +129,17 @@ TOML, in metres and seconds.
 - Heading 0 is +x, counter-clockwise.
 - **Unknown keys are errors.** All validation errors are reported together.
 
-See [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml) for a commented example.
+See [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml) for a commented example. All three
+bundled scenarios use the same file format and the same simulator:
+
+| Scenario | Setting | Floor | Scenes | Liminal pipeline |
+|---|---|---|---|---|
+| [sample-floor.toml](../config/shopfloor/sample-floor.toml) | A factory cell: machines and mobile manipulators | 20×12 m | `production`, `vibration_fault`, `encaser_to_deflasher` | [config_shopfloor_vibr_tcp.toml](../config/examples/config_shopfloor_vibr_tcp.toml) |
+| [data-centre.toml](../config/shopfloor/data-centre.toml) | Server racks, cooling units and service robots | 24×14 m | `routine_rounds`, `cooling_failure` | [config_shopfloor_datacentre_tcp.toml](../config/examples/config_shopfloor_datacentre_tcp.toml) |
+| [container-port.toml](../config/shopfloor/container-port.toml) | A ship, quay cranes, a container yard and fast vehicles | 400×200 m | `container_flow`, `high_wind` | [config_shopfloor_port_tcp.toml](../config/examples/config_shopfloor_port_tcp.toml) |
+
+The floor can be any size. Machines and MMs are drawn at their real size, and text and markers scale with the floor so
+they stay readable. On a large floor, set `grid_m` and `dock_tolerance_m` to match.
 
 | Key | Default | Meaning |
 |---|---|---|
