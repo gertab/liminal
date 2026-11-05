@@ -326,6 +326,7 @@ fn sensors_report_on_their_period_and_follow_setpoints() {
             setpoint: 0.8,
             noise_std: 0.0,
             previous_setpoint: 0.1,
+            paused: false,
             origin: Origin::Ui,
         }
     );
@@ -364,6 +365,141 @@ fn noise_is_seeded_and_clamped() {
     assert!(values.iter().all(|v| (0.0..=2.0).contains(v)));
     assert!(values.contains(&0.0), "large noise around 0.1 hits the lower clamp");
     assert!(values.iter().any(|v| *v != 0.0 && *v != 0.1));
+}
+
+fn set_paused(sensor: &str, paused: bool) -> CommandEnvelope {
+    ui(SimCommand::SetSensorPaused {
+        sensor: sensor.into(),
+        paused,
+    })
+}
+
+fn readings_of(events: &[SimEvent], id: &str) -> Vec<(u64, f64)> {
+    events
+        .iter()
+        .filter_map(|e| match &e.body {
+            EventBody::Sensor { sensor, value, .. } if sensor == id => Some((e.sim_ms, *value)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn sensor_view(engine: &Engine, id: &str) -> SensorView {
+    engine.state().sensors.into_iter().find(|s| s.id == id).unwrap()
+}
+
+#[test]
+fn a_paused_sensor_reports_nothing_until_resumed() {
+    let mut engine = engine();
+    assert_eq!(
+        readings_of(&run(&mut engine, 50), "mm1.vibration"),
+        vec![(500, 0.1), (1000, 0.1)]
+    );
+
+    let events = engine.apply(set_paused("mm1.vibration", true), TS).unwrap();
+    assert!(matches!(
+        &events[0].body,
+        EventBody::SensorSet { sensor, paused: true, origin: Origin::Ui, .. } if sensor == "mm1.vibration"
+    ));
+    assert!(sensor_view(&engine, "mm1.vibration").paused);
+
+    // A setpoint changed while paused is what it reports after resuming.
+    engine
+        .apply(
+            ui(SimCommand::SetSensor {
+                sensor: "mm1.vibration".into(),
+                value: 0.8,
+            }),
+            TS,
+        )
+        .unwrap();
+
+    let silent = run(&mut engine, 100);
+    assert!(readings_of(&silent, "mm1.vibration").is_empty());
+    assert_eq!(
+        readings_of(&silent, "machine2.temperature"),
+        vec![(2000, 40.0), (3000, 40.0)],
+        "other sensors carry on"
+    );
+    let view = sensor_view(&engine, "mm1.vibration");
+    assert_eq!((view.last_value, view.last_ms), (Some(0.1), Some(1000)), "keeps its last reading");
+
+    let events = engine.apply(set_paused("mm1.vibration", false), TS).unwrap();
+    assert!(matches!(&events[0].body, EventBody::SensorSet { paused: false, .. }));
+    assert_eq!(
+        readings_of(&run(&mut engine, 50), "mm1.vibration"),
+        vec![(3500, 0.8), (4000, 0.8)],
+        "back on its schedule, with no burst of missed readings"
+    );
+
+    let error = engine.apply(set_paused("nope", true), TS).unwrap_err();
+    assert!(error.to_string().contains("Unknown sensor 'nope'"), "{error}");
+}
+
+#[test]
+fn pausing_a_sensor_does_not_change_what_the_others_report() {
+    fn hall_readings(pause_vibration: bool) -> Vec<(u64, f64)> {
+        let mut engine = engine();
+        for sensor in ["mm1.vibration", "hall_temp"] {
+            engine
+                .apply(
+                    ui(SimCommand::SetSensorNoise {
+                        sensor: sensor.into(),
+                        std: 0.5,
+                    }),
+                    TS,
+                )
+                .unwrap();
+        }
+        if pause_vibration {
+            engine.apply(set_paused("mm1.vibration", true), TS).unwrap();
+        }
+        readings_of(&run(&mut engine, 500), "hall_temp")
+    }
+    let readings = hall_readings(true);
+    assert_eq!(readings.len(), 10);
+    assert_eq!(readings, hall_readings(false));
+}
+
+#[test]
+fn reset_resumes_paused_sensors() {
+    let mut engine = engine();
+    engine.apply(set_paused("hall_temp", true), TS).unwrap();
+    engine.control(Control::Reset, TS).unwrap();
+    assert!(!sensor_view(&engine, "hall_temp").paused);
+    assert_eq!(readings_of(&run(&mut engine, 50), "hall_temp"), vec![(1000, 22.0)]);
+}
+
+#[test]
+fn scenes_can_pause_and_resume_a_sensor() {
+    let scenario = format!(
+        "{SCENARIO}\n{}",
+        r#"
+        [scenes.dropout]
+        [[scenes.dropout.tracks]]
+        steps = [
+          { wait_ms = 1200 },
+          { pause_sensor = "mm1.vibration" },
+          { wait_ms = 2000 },
+          { resume_sensor = "mm1.vibration" },
+          { wait_ms = 1000 },
+        ]
+        "#
+    );
+    let mut engine = Engine::new(Arc::new(parse_scenario(&scenario, None).unwrap()));
+    engine.control(Control::PlayScene("dropout".into()), TS).unwrap();
+    let events = run(&mut engine, 250);
+
+    let times: Vec<u64> = readings_of(&events, "mm1.vibration").iter().map(|r| r.0).collect();
+    assert_eq!(times, vec![500, 1000, 3500, 4000, 4500, 5000]);
+    let sets: Vec<(bool, Origin)> = events
+        .iter()
+        .filter_map(|e| match &e.body {
+            EventBody::SensorSet { paused, origin, .. } => Some((*paused, *origin)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sets, vec![(true, Origin::Scene), (false, Origin::Scene)]);
 }
 
 #[test]

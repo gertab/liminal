@@ -213,7 +213,13 @@ export function FloorView({
       })}
 
       {ghost && selectedDef && (
-        <circle className="ghost-target" cx={ghost.x} cy={sy(ghost.y)} r={selectedDef.radius_m} />
+        <circle
+          className="ghost-target"
+          style={{ color: mmColor(scenario.mobile_manipulators.indexOf(selectedDef)) }}
+          cx={ghost.x}
+          cy={sy(ghost.y)}
+          r={selectedDef.radius_m}
+        />
       )}
     </svg>
   );
@@ -238,7 +244,9 @@ function SensorReadouts({ ids, x, y, scale, sensorDefs, sensorViews, focusedSens
         const def = sensorDefs.get(id);
         if (!def) return null;
         const view = sensorViews.get(id);
-        const text = `${def.name} ${formatValue(view?.last_value ?? view?.setpoint)} ${def.unit}`;
+        const text = view?.paused
+          ? `${def.name} paused`
+          : `${def.name} ${formatValue(view?.last_value ?? view?.setpoint)} ${def.unit}`;
         const baseline = y + index * (READOUT_SIZE + 0.08) * scale;
         const width = (text.length * MONO_CHAR_EM * READOUT_SIZE + 2 * HIT_PAD) * scale;
         return (
@@ -257,7 +265,12 @@ function SensorReadouts({ ids, x, y, scale, sensorDefs, sensorViews, focusedSens
               width={width}
               height={(READOUT_SIZE * 1.15 + 0.04) * scale}
             />
-            <text x={x} y={baseline} className="sensor-readout" textAnchor="middle">
+            <text
+              x={x}
+              y={baseline}
+              className={`sensor-readout${view?.paused ? " is-paused" : ""}`}
+              textAnchor="middle"
+            >
               {text}
             </text>
           </g>
@@ -343,7 +356,7 @@ function FloorSensor({ def, view, sy, scale, focused, onClick }: FloorSensorProp
   const half = 0.2 * scale;
   const labelBaseline = cy - half - 0.12 * scale;
   const valueBaseline = cy + half + (READOUT_SIZE + 0.05) * scale;
-  const valueText = `${formatValue(view?.last_value ?? view?.setpoint)} ${def.unit}`;
+  const valueText = view?.paused ? "paused" : `${formatValue(view?.last_value ?? view?.setpoint)} ${def.unit}`;
   // One click target covering the label, the diamond and the value.
   const hitWidth =
     Math.max(
@@ -371,7 +384,12 @@ function FloorSensor({ def, view, sy, scale, focused, onClick }: FloorSensorProp
       <text x={cx} y={labelBaseline} className="floor-sensor-label" textAnchor="middle">
         {def.label}
       </text>
-      <text x={cx} y={valueBaseline} className="sensor-readout" textAnchor="middle">
+      <text
+        x={cx}
+        y={valueBaseline}
+        className={`sensor-readout${view?.paused ? " is-paused" : ""}`}
+        textAnchor="middle"
+      >
         {valueText}
       </text>
     </g>

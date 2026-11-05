@@ -1,4 +1,4 @@
-import { Hand, Navigation, RotateCcw, Square } from "lucide-react";
+import { Hand, Navigation, Pause, Play, RotateCcw, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { formatPoint, formatSimTime, formatValue, machineLabel, mmColor } from "../../format";
@@ -216,6 +216,7 @@ function SensorControl({ def, view, focused, highlighted, onFocus, send }: Senso
   const rowRef = useRef<HTMLDivElement>(null);
   const setpoint = view?.setpoint ?? def.default;
   const noise = view?.noise_std ?? def.noise_std;
+  const paused = view?.paused ?? false;
 
   // While dragging, the slider shows a local draft that is sent at most every SLIDER_THROTTLE_MS
   // and dropped shortly after the last send (by then the simulation reports it back).
@@ -298,7 +299,11 @@ function SensorControl({ def, view, focused, highlighted, onFocus, send }: Senso
           {def.label}
         </span>
         <span className="sensor-kind">{def.kind}</span>
-        <span className="sensor-reading" title="Latest reading">
+        <span
+          className={`sensor-reading${paused ? " is-paused" : ""}`}
+          title={paused ? "Paused: this was its last reading" : "Latest reading"}
+        >
+          {paused && "paused · "}
           {formatValue(view?.last_value)} <span className="muted">{def.unit}</span>
         </span>
       </div>
@@ -335,6 +340,18 @@ function SensorControl({ def, view, focused, highlighted, onFocus, send }: Senso
           }}
         >
           <RotateCcw size={13} />
+        </button>
+        <button
+          type="button"
+          className={`icon-button${paused ? " is-active" : ""}`}
+          title={paused ? "Resume this sensor's readings" : "Pause this sensor's readings, as if it had failed"}
+          aria-pressed={paused}
+          onClick={(event) => {
+            event.stopPropagation();
+            send({ type: "set_sensor_paused", sensor: def.id, paused: !paused });
+          }}
+        >
+          {paused ? <Play size={13} /> : <Pause size={13} />}
         </button>
       </div>
       <div className="sensor-row small muted">

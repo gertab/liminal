@@ -82,6 +82,7 @@ impl Motion {
 struct SensorState {
     setpoint: f64,
     noise_std: f64,
+    paused: bool,
     next_due_ms: u64,
     last_value: Option<f64>,
     last_ms: Option<u64>,
@@ -133,6 +134,7 @@ pub struct SensorView {
     pub id: String,
     pub setpoint: f64,
     pub noise_std: f64,
+    pub paused: bool,
     pub last_value: Option<f64>,
     pub last_ms: Option<u64>,
 }
@@ -235,10 +237,13 @@ impl Engine {
             SimCommand::MoveTo { mm, target } => self.move_to(&mm, target, origin)?,
             SimCommand::Stop { mm } => self.stop(&mm, origin)?,
             SimCommand::SetSensor { sensor, value } => {
-                self.set_sensor(&sensor, Some(value), None, origin)?
+                self.set_sensor(&sensor, Some(value), None, None, origin)?
             }
             SimCommand::SetSensorNoise { sensor, std } => {
-                self.set_sensor(&sensor, None, Some(std), origin)?
+                self.set_sensor(&sensor, None, Some(std), None, origin)?
+            }
+            SimCommand::SetSensorPaused { sensor, paused } => {
+                self.set_sensor(&sensor, None, None, Some(paused), origin)?
             }
             SimCommand::Perform { mm, action } => self.perform(&mm, &action, origin)?,
         };
@@ -313,6 +318,7 @@ impl Engine {
             while sensor.next_due_ms <= now {
                 sensor.next_due_ms += def.period_ms;
             }
+            // Drawn even while paused, so pausing one sensor doesn't change what the others report.
             let noise = if sensor.noise_std > 0.0 {
                 Normal::new(0.0, sensor.noise_std)
                     .map(|normal| normal.sample(&mut self.rng))
@@ -320,6 +326,9 @@ impl Engine {
             } else {
                 0.0
             };
+            if sensor.paused {
+                continue;
+            }
             let value = round_to((sensor.setpoint + noise).clamp(def.min, def.max), VALUE_DECIMALS);
             sensor.last_value = Some(value);
             sensor.last_ms = Some(now);
@@ -394,6 +403,7 @@ impl Engine {
                     id: def.id.clone(),
                     setpoint: sensor.setpoint,
                     noise_std: sensor.noise_std,
+                    paused: sensor.paused,
                     last_value: sensor.last_value,
                     last_ms: sensor.last_ms,
                 })
@@ -573,6 +583,7 @@ impl Engine {
             .map(|def| SensorState {
                 setpoint: def.default,
                 noise_std: def.noise_std,
+                paused: false,
                 next_due_ms: def.period_ms,
                 last_value: None,
                 last_ms: None,
@@ -685,6 +696,7 @@ impl Engine {
         sensor_id: &str,
         setpoint: Option<f64>,
         noise_std: Option<f64>,
+        paused: Option<bool>,
         origin: Origin,
     ) -> anyhow::Result<Vec<EventBody>> {
         let scenario = Arc::clone(&self.scenario);
@@ -718,6 +730,9 @@ impl Engine {
         if let Some(std) = noise_std {
             sensor.noise_std = std;
         }
+        if let Some(paused) = paused {
+            sensor.paused = paused;
+        }
         Ok(vec![EventBody::SensorSet {
             sensor: def.id.clone(),
             entity: def.host.clone(),
@@ -725,6 +740,7 @@ impl Engine {
             setpoint: sensor.setpoint,
             noise_std: sensor.noise_std,
             previous_setpoint,
+            paused: sensor.paused,
             origin,
         }])
     }

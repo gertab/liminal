@@ -43,6 +43,10 @@ pub enum StepSpec {
     Perform(PerformSpec),
     SetSensor(SetSensorSpec),
     SetSensorNoise(SetSensorNoiseSpec),
+    /// Stop this sensor's readings, as if it had failed.
+    PauseSensor(String),
+    /// Start this sensor's readings again.
+    ResumeSensor(String),
     /// Wait this many milliseconds of simulation time.
     WaitMs(u64),
     /// Wait until this MM has no move in progress.
@@ -132,6 +136,8 @@ impl Step {
                 SimCommand::Perform { mm, action } => format!("{mm}: {action}"),
                 SimCommand::SetSensor { sensor, value } => format!("set {sensor} = {value}"),
                 SimCommand::SetSensorNoise { sensor, std } => format!("set {sensor} noise σ = {std}"),
+                SimCommand::SetSensorPaused { sensor, paused: true } => format!("pause {sensor}"),
+                SimCommand::SetSensorPaused { sensor, paused: false } => format!("resume {sensor}"),
             },
             Step::WaitMs(ms) => format!("wait {}", format_seconds(*ms)),
             Step::WaitIdle(mm) => format!("wait until {mm} is idle"),
@@ -292,6 +298,15 @@ fn resolve_step(spec: &StepSpec, scenario: &Scenario) -> Result<Step, String> {
             Step::Command(SimCommand::SetSensorNoise {
                 sensor: sensor.clone(),
                 std: *std,
+            })
+        }
+        StepSpec::PauseSensor(sensor) | StepSpec::ResumeSensor(sensor) => {
+            scenario
+                .sensor_index(sensor)
+                .ok_or_else(|| format!("unknown sensor '{sensor}'"))?;
+            Step::Command(SimCommand::SetSensorPaused {
+                sensor: sensor.clone(),
+                paused: matches!(spec, StepSpec::PauseSensor(_)),
             })
         }
         StepSpec::WaitMs(ms) => Step::WaitMs(*ms),
@@ -489,6 +504,8 @@ mod tests {
               { set_sensor = { sensor = "mm1.nope", value = 1.0 } },
               { set_sensor_noise = { sensor = "mm1.vibration", std = -1.0 } },
               { wait_idle = "mm9" },
+              { pause_sensor = "mm1.nope" },
+              { resume_sensor = "mm1.gone" },
             ]
             "#,
         );
@@ -503,6 +520,8 @@ mod tests {
             "step 8: unknown sensor 'mm1.nope'",
             "step 9: noise for 'mm1.vibration' must be >= 0",
             "step 10: unknown mobile manipulator 'mm9'",
+            "step 11: unknown sensor 'mm1.nope'",
+            "step 12: unknown sensor 'mm1.gone'",
         ] {
             assert!(errors.contains(expected), "missing {expected:?} in:\n{errors}");
         }

@@ -75,7 +75,7 @@ npm run build               # TypeScript type-check + production bundle
 | Re-target | Give a new target while it moves. The old move is replaced immediately. |
 | Stop | **Stop** on the MM's card. |
 | Perform an action | Use the action buttons (Pick, Place, …) on the MM's card. A greyed-out button shows why on hover (e.g. "'pick' needs mm1 at a machine"). The action name flashes above the MM, and the card shows the last action. |
-| Change a sensor | Use the slider or number field in **Sensors** on the right. The reset button beside it restores the default. **noise σ** adds Gaussian noise. Clicking a reading or a free-standing sensor's diamond on the floor jumps to its control. Free-standing sensors are listed under **Floor**. |
+| Change a sensor | Use the slider or number field in **Sensors** on the right. The reset button beside it restores the default. The pause button stops its readings, as if the sensor had failed, until you resume it. **noise σ** adds Gaussian noise. Clicking a reading or a free-standing sensor's diamond on the floor jumps to its control. Free-standing sensors are listed under **Floor**. |
 | Pause / reset | Toolbar, or **Space** to pause and resume. Reset returns to start positions, default sensor values and time 0. |
 | Inspect the output | The bottom panel shows every event. You can filter by kind or entity. **{}** shows the raw JSON lines that the sinks write. |
 | Play a scene | **Scenes** at the top right: **Play** / **Stop**. While it plays, each track shows what it waits on, and the toolbar shows the scene and its iteration. Pause and Reset apply to the scene too, and manual control still works. |
@@ -105,7 +105,7 @@ React UI ── invoke("send_command", {move_to …}) ──► SimRuntime (toki
   - Wall-clock time is passed in and used only to stamp events. Runs are therefore reproducible, and the engine can be
     stepped faster than real time.
 - **Commands** ([sim/src/command.rs](sim/src/command.rs)) are the only way in: `move_to`, `stop`, `perform`,
-  `set_sensor` and `set_sensor_noise`.
+  `set_sensor`, `set_sensor_noise` and `set_sensor_paused`.
   - Each one carries an origin: `ui`, `scene` or `api`.
   - The UI is just one command source. Scripted scenes or external tools can send the same commands.
 - **Action rules** live in one place, `Engine::action_blocker`.
@@ -137,7 +137,7 @@ bundled scenarios use the same file format and the same simulator:
 | Scenario | Setting | Floor | Scenes | Liminal pipeline |
 |---|---|---|---|---|
 | [basic.toml](../config/shopfloor/basic.toml) | The smallest useful floor: one MM, one machine, one sensor | 10×6 m | `visit_machine` | None: it has no sinks |
-| [sample-floor.toml](../config/shopfloor/sample-floor.toml) | A factory cell: machines and mobile manipulators | 20×12 m | `production`, `vibration_fault`, `encaser_to_deflasher` | [config_shopfloor_vibr_tcp.toml](../config/examples/config_shopfloor_vibr_tcp.toml) |
+| [sample-floor.toml](../config/shopfloor/sample-floor.toml) | A factory cell: machines and mobile manipulators | 20×12 m | `production`, `vibration_fault`, `encaser_to_deflasher`, `sensor_dropout` | [config_shopfloor_vibr_tcp.toml](../config/examples/config_shopfloor_vibr_tcp.toml) |
 | [data-centre.toml](../config/shopfloor/data-centre.toml) | Server racks, cooling units and service robots | 24×14 m | `routine_rounds`, `cooling_failure` | [config_shopfloor_datacentre_tcp.toml](../config/examples/config_shopfloor_datacentre_tcp.toml) |
 | [container-port.toml](../config/shopfloor/container-port.toml) | A ship, quay cranes, a container yard and fast vehicles | 400×200 m | `container_flow`, `high_wind` | [config_shopfloor_port_tcp.toml](../config/examples/config_shopfloor_port_tcp.toml) |
 
@@ -227,6 +227,8 @@ steps = [
 | `perform = { mm, action }` | Perform an action |
 | `set_sensor = { sensor, value }` | Set a sensor's value |
 | `set_sensor_noise = { sensor, std }` | Set a sensor's noise |
+| `pause_sensor = "mm1.vibration"` | Stop a sensor's readings, as if it had failed. It stays paused until resumed or the simulation is reset, even if the scene ends or is stopped. |
+| `resume_sensor = "mm1.vibration"` | Start its readings again, on its usual schedule |
 | `stop = "mm1"` | Stop the MM |
 
 How it plays:
@@ -295,7 +297,7 @@ Every event is **one flat JSON object** with the same envelope:
 | `arrived` | An MM reaches its target | `entity`, `command_id`, `x`, `y`, `at` |
 | `stopped` | An MM is stopped before arriving | `entity`, `command_id`, `x`, `y`, `at`, `origin` |
 | `sensor` | Every `period_ms` per sensor | `sensor` (id), `entity` (host, or the sensor itself if free-standing), `sensor_kind`, `value`, `unit`, `x`, `y` (where the reading was taken: the MM's current position, the machine's centre, or the fixed position) |
-| `sensor_set` | A sensor's setpoint or noise is changed | `sensor`, `entity`, `sensor_kind`, `setpoint`, `noise_std`, `previous_setpoint`, `origin` |
+| `sensor_set` | A sensor's setpoint, noise or pause state is changed | `sensor`, `entity`, `sensor_kind`, `setpoint`, `noise_std`, `previous_setpoint`, `paused`, `origin` |
 | `action` | An MM performs an action (silent: nothing else changes) | `entity`, `action`, `command_id` (shared with moves), `x`, `y`, `at`, `origin` |
 | `sim` | Started, paused, resumed or reset | `state`, `scenario` |
 | `scene` | A scene starts, restarts (next iteration), finishes, is stopped, or fails | `scene`, `state` (`started`/`restarted`/`finished`/`stopped`/`failed`), `iteration`, `error` (why it failed, else null) |

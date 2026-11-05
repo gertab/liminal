@@ -82,7 +82,7 @@ export function describeEvent(event: SimEvent, scenario: Scenario | null): strin
     case "sensor":
       return `${event.sensor} = ${formatValue(event.value)} ${event.unit}  @ ${formatPoint(event.x, event.y)}`;
     case "sensor_set":
-      return `${event.sensor} setpoint ${formatValue(event.previous_setpoint)} → ${formatValue(event.setpoint)}, noise σ ${formatValue(event.noise_std)}  [${event.origin}]`;
+      return `${event.sensor} setpoint ${formatValue(event.previous_setpoint)} → ${formatValue(event.setpoint)}, noise σ ${formatValue(event.noise_std)}${event.paused ? ", paused" : ""}  [${event.origin}]`;
     case "action":
       return `#${event.command_id} ${event.action} at ${describePlace(scenario, event)}  [${event.origin}]`;
     case "scene":

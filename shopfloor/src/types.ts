@@ -138,6 +138,7 @@ export interface SensorView {
   id: string;
   setpoint: number;
   noise_std: number;
+  paused: boolean;
   last_value: number | null;
   last_ms: number | null;
 }
@@ -204,6 +205,7 @@ export type SimEvent = Envelope &
         setpoint: number;
         noise_std: number;
         previous_setpoint: number;
+        paused: boolean;
         origin: Origin;
       }
     | {
@@ -249,6 +251,7 @@ export type SimCommand =
   | { type: "stop"; mm: string }
   | { type: "set_sensor"; sensor: string; value: number }
   | { type: "set_sensor_noise"; sensor: string; std: number }
+  | { type: "set_sensor_paused"; sensor: string; paused: boolean }
   | { type: "perform"; mm: string; action: string };
 
 export type Control = "pause" | "resume" | "reset" | "stop_scene" | { play_scene: string };

@@ -16,6 +16,9 @@ pub enum SimCommand {
     SetSensor { sensor: String, value: f64 },
     /// Set the standard deviation of the Gaussian noise added to a sensor's readings.
     SetSensorNoise { sensor: String, std: f64 },
+    /// Pause or resume a sensor's readings. A paused sensor reports nothing, as if it had failed,
+    /// and carries on with its usual schedule and current setpoint when resumed.
+    SetSensorPaused { sensor: String, paused: bool },
     /// Perform one of the scenario's `[actions]` (e.g. pick). Silent: it only emits an `action`
     /// event, if the action's conditions hold.
     Perform { mm: String, action: String },

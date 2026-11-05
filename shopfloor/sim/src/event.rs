@@ -72,7 +72,8 @@ pub enum EventBody {
         x: f64,
         y: f64,
     },
-    /// A sensor's setpoint or noise was changed (ground truth for what the readings should show).
+    /// A sensor's setpoint, noise or pause state was changed (ground truth for what the readings
+    /// should show).
     SensorSet {
         sensor: String,
         entity: String,
@@ -80,6 +81,8 @@ pub enum EventBody {
         setpoint: f64,
         noise_std: f64,
         previous_setpoint: f64,
+        /// Whether its readings are paused, so it reports nothing.
+        paused: bool,
         origin: Origin,
     },
     /// An MM performed one of the scenario's actions (e.g. pick). Silent: nothing else changes.
@@ -274,10 +277,11 @@ mod tests {
                     setpoint: 0.8,
                     noise_std: 0.0,
                     previous_setpoint: 0.1,
+                    paused: false,
                     origin: Origin::Ui,
                 },
             ),
-            r#"{"v":1,"seq":60,"ts":1761730013000,"sim_ms":13000,"kind":"sensor_set","sensor":"mm1.vibration","entity":"mm1","sensor_kind":"vibration","setpoint":0.8,"noise_std":0.0,"previous_setpoint":0.1,"origin":"ui"}"#,
+            r#"{"v":1,"seq":60,"ts":1761730013000,"sim_ms":13000,"kind":"sensor_set","sensor":"mm1.vibration","entity":"mm1","sensor_kind":"vibration","setpoint":0.8,"noise_std":0.0,"previous_setpoint":0.1,"paused":false,"origin":"ui"}"#,
         );
     }
 

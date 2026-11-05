@@ -130,7 +130,8 @@ label = "Inspect"                # anywhere, while stopped
 # --- Scenes (scripted runs: tracks run in parallel, steps within a track run in order) ---------
 #
 # Steps: move_to {mm, machine | point}, stop, perform {mm, action}, set_sensor {sensor, value},
-# set_sensor_noise {sensor, std}, wait_ms, wait_idle (until that MM has no move in progress).
+# set_sensor_noise {sensor, std}, pause_sensor, resume_sensor, wait_ms, wait_idle (until that MM has
+# no move in progress).
 # An iteration ends when every track is done; `loop = true` or `repeat = N` runs it again.
 
 [scenes.production]
@@ -207,6 +208,21 @@ steps = [
   { wait_idle = "mm1" },
   { perform = { mm = "mm1", action = "place" } },
   { wait_ms = 1500 },
+]
+
+# mm1's vibration sensor fails for 10 s while mm1 carries on: its readings simply stop. The two
+# `sensor_set` events record what really happened.
+[scenes.sensor_dropout]
+label = "MM1 vibration sensor dropout"
+
+[[scenes.sensor_dropout.tracks]]
+steps = [
+  { move_to = { mm = "mm1", machine = "machine2" } },
+  { wait_ms = 2000 },
+  { pause_sensor = "mm1.vibration" },
+  { wait_ms = 10000 },
+  { resume_sensor = "mm1.vibration" },
+  { wait_ms = 3000 },
 ]
 
 # --- Output -----------------------------------------------------------------------------------

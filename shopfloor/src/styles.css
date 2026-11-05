@@ -340,6 +340,10 @@ h3 {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.sensor-readout.is-paused {
+  fill: var(--text-muted);
+}
+
 .sensor-readout-line {
   cursor: pointer;
 }
@@ -439,7 +443,7 @@ h3 {
 
 .ghost-target {
   fill: none;
-  stroke: var(--accent);
+  stroke: currentColor;
   stroke-width: calc(0.04px * var(--floor-scale));
   stroke-dasharray: calc(0.1px * var(--floor-scale)) calc(0.08px * var(--floor-scale));
   pointer-events: none;
@@ -671,6 +675,10 @@ h3 {
   margin-left: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--kind-sensor);
+}
+
+.sensor-reading.is-paused {
+  color: var(--text-muted);
 }
 
 .sensor-row {
