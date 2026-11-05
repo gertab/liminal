@@ -5,7 +5,7 @@
 # Free-standing sensors are top-level [sensors.<id>] tables with a fixed position.
 # Unknown keys are errors. See shopfloor/README.md for the full reference.
 
-name = "Default cell"
+name = "Shopfloor example"
 
 [sim]
 tick_ms = 20             # fixed engine step
@@ -79,15 +79,35 @@ period_ms = 500
 
 [mobile_manipulators.mm2]
 label = "MM 2"
-start = [10.0, 5.0]
+start = [15.0, 9.0]
 start_heading_deg = 90.0
 max_speed_mps = 0.6
 radius_m = 0.35
 actions = ["inspect"]    # only some of [actions] (default: all of them)
 
-[mobile_manipulators.mm2.sensors.vibration]
+[mobile_manipulators.mm2.sensors.vibration_1]
+label = "Vibration 1"
+kind = "vibration"
 unit = "g"
 default = 0.1
+range = [0.0, 2.0]
+period_ms = 500
+noise_std = 0.01
+
+[mobile_manipulators.mm2.sensors.vibration_2]
+label = "Vibration 2"
+kind = "vibration"
+unit = "g"
+default = 0.12
+range = [0.0, 2.0]
+period_ms = 500
+noise_std = 0.01
+
+[mobile_manipulators.mm2.sensors.vibration_3]
+label = "Vibration 3"
+kind = "vibration"
+unit = "g"
+default = 0.14
 range = [0.0, 2.0]
 period_ms = 500
 noise_std = 0.01

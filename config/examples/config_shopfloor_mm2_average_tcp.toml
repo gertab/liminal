@@ -1,0 +1,108 @@
+# Shopfloor → Liminal over TCP: the average of MM 2's three vibration sensors
+#
+# Consumes the event stream of config/shopfloor/sample-floor.toml (see shopfloor/README.md). The simulator
+# listens on 127.0.0.1:9000; this pipeline connects to it and reconnects whenever the simulator restarts,
+# so either side can start first.
+#
+#   cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production
+#   cargo run -- --config config/examples/config_shopfloor_mm2_average_tcp.toml
+#
+# (or run the shopfloor app, and run this config from the Liminal GUI).
+#
+# Flow: shopfloor events → one rule stage per sensor → fusion → compute the average → console
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.mm2_average]
+description = "Average MM 2's three vibration sensors"
+
+# One stage per sensor, each giving a channel with just that sensor's values. `sensor_set` events also
+# have a `sensor` field, so the first rule keeps readings only.
+[pipelines.mm2_average.stages.vibration_1]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "vibration_1"
+
+[[pipelines.mm2_average.stages.vibration_1.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.mm2_average.stages.vibration_1.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "mm2.vibration_1" }
+actions = [{ type = "keep_only_fields", field_paths = ["value"] }]
+else_actions = [{ type = "drop_message" }]
+
+[pipelines.mm2_average.stages.vibration_2]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "vibration_2"
+
+[[pipelines.mm2_average.stages.vibration_2.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.mm2_average.stages.vibration_2.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "mm2.vibration_2" }
+actions = [{ type = "keep_only_fields", field_paths = ["value"] }]
+else_actions = [{ type = "drop_message" }]
+
+[pipelines.mm2_average.stages.vibration_3]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "vibration_3"
+
+[[pipelines.mm2_average.stages.vibration_3.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.mm2_average.stages.vibration_3.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "mm2.vibration_3" }
+actions = [{ type = "keep_only_fields", field_paths = ["value"] }]
+else_actions = [{ type = "drop_message" }]
+
+# Combine them into one message: { "vibration_1": { "value": … }, "vibration_2": …, "vibration_3": … }
+# All three report at the same moment, so the join window collects one reading from each. `latest_by_input`
+# would not suit this: it can mix readings from different moments, and repeats a dead sensor's last value.
+[pipelines.mm2_average.stages.combined]
+type = "fusion"
+inputs = ["vibration_1", "vibration_2", "vibration_3"]
+output = "mm2_vibrations"
+parameters = { mode = "nest_by_input", join_window_ms = 25 }
+
+# Compute the average, and output only that. If a sensor is silent (e.g. paused) there is no average: its
+# field is missing, so its condition is false and the message is dropped.
+[pipelines.mm2_average.stages.average]
+type = "rule"
+inputs = ["mm2_vibrations"]
+output = "mm2_average"
+
+[[pipelines.mm2_average.stages.average.parameters.rules]]
+condition = { field_path = "vibration_1.value", operation = ">=", value = 0.0 }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+[[pipelines.mm2_average.stages.average.parameters.rules]]
+condition = { field_path = "vibration_2.value", operation = ">=", value = 0.0 }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+[[pipelines.mm2_average.stages.average.parameters.rules]]
+condition = { field_path = "vibration_3.value", operation = ">=", value = 0.0 }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+[[pipelines.mm2_average.stages.average.parameters.rules]]
+condition = { operation = "always" }
+actions = [
+    { type = "compute_field", field_path = "average", expression = "(vibration_1.value + vibration_2.value + vibration_3.value) / 3" },
+    { type = "keep_only_fields", field_paths = [] },
+    { type = "set_field", field_path = "unit", value = "g" },
+]
+
+[outputs.mm2_average_log]
+type = "console"
+inputs = ["mm2_average"]
