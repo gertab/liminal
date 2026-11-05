@@ -86,12 +86,12 @@ dock = [80.0, 56.0]
 sensors.fill = { label = "Fill level", unit = "%", default = 55.0, range = [0.0, 100.0], period_ms = 5000 }
 
 [machines.block_e]
-label = "Block E (reefers)"
+label = "Block E (freezers)"
 position = [200.0, 20.0]
 size = [100.0, 28.0]
 dock = [200.0, 56.0]
 sensors.fill = { label = "Fill level", unit = "%", default = 40.0, range = [0.0, 100.0], period_ms = 5000 }
-sensors.reefer = { kind = "reefer_temp", label = "Reefer temperature", unit = "°C", default = -18.0, range = [-30.0, 20.0], period_ms = 2000, noise_std = 0.1 }
+sensors.freezer = { kind = "freezer_temp", label = "Freezer temperature", unit = "°C", default = -18.0, range = [-30.0, 20.0], period_ms = 2000, noise_std = 0.1 }
 
 [machines.gate]
 label = "Truck gate"

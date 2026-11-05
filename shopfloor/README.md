@@ -1,3 +1,5 @@
+<img src="src-tauri/icons/128x128@2x.png" alt="Liminal Shopfloor icon: a mobile manipulator" width="96" height="96">
+
 # Liminal Shopfloor
 
 An interactive shopfloor simulator. It lives in the Liminal repo next to the core runtime (`src/`) and the pipeline
@@ -72,8 +74,8 @@ npm run build               # TypeScript type-check + production bundle
 | Send it to a point | With an MM selected, click anywhere on the floor. A ghost circle shows where it will stop. |
 | Re-target | Give a new target while it moves. The old move is replaced immediately. |
 | Stop | **Stop** on the MM's card. |
-| Perform an action | Use the action buttons (✋ Pick, Place, …) on the MM's card. A greyed-out button shows why on hover (e.g. "'pick' needs mm1 at a machine"). The action name flashes above the MM, and the card shows the last action. |
-| Change a sensor | Use the slider or number field in **Sensors** on the right. **↺** resets it to the default. **noise σ** adds Gaussian noise. Clicking a reading or a ◇ floor sensor on the floor jumps to its control. Free-standing sensors are listed under **Floor**. |
+| Perform an action | Use the action buttons (Pick, Place, …) on the MM's card. A greyed-out button shows why on hover (e.g. "'pick' needs mm1 at a machine"). The action name flashes above the MM, and the card shows the last action. |
+| Change a sensor | Use the slider or number field in **Sensors** on the right. The reset button beside it restores the default. **noise σ** adds Gaussian noise. Clicking a reading or a free-standing sensor's diamond on the floor jumps to its control. Free-standing sensors are listed under **Floor**. |
 | Pause / reset | Toolbar, or **Space** to pause and resume. Reset returns to start positions, default sensor values and time 0. |
 | Inspect the output | The bottom panel shows every event. You can filter by kind or entity. **{}** shows the raw JSON lines that the sinks write. |
 | Play a scene | **Scenes** at the top right: **Play** / **Stop**. While it plays, each track shows what it waits on, and the toolbar shows the scene and its iteration. Pause and Reset apply to the scene too, and manual control still works. |
@@ -129,11 +131,12 @@ TOML, in metres and seconds.
 - Heading 0 is +x, counter-clockwise.
 - **Unknown keys are errors.** All validation errors are reported together.
 
-See [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml) for a commented example. All three
+See [config/shopfloor/sample-floor.toml](../config/shopfloor/sample-floor.toml) for a commented example. All the
 bundled scenarios use the same file format and the same simulator:
 
 | Scenario | Setting | Floor | Scenes | Liminal pipeline |
 |---|---|---|---|---|
+| [basic.toml](../config/shopfloor/basic.toml) | The smallest useful floor: one MM, one machine, one sensor | 10×6 m | `visit_machine` | None: it has no sinks |
 | [sample-floor.toml](../config/shopfloor/sample-floor.toml) | A factory cell: machines and mobile manipulators | 20×12 m | `production`, `vibration_fault`, `encaser_to_deflasher` | [config_shopfloor_vibr_tcp.toml](../config/examples/config_shopfloor_vibr_tcp.toml) |
 | [data-centre.toml](../config/shopfloor/data-centre.toml) | Server racks, cooling units and service robots | 24×14 m | `routine_rounds`, `cooling_failure` | [config_shopfloor_datacentre_tcp.toml](../config/examples/config_shopfloor_datacentre_tcp.toml) |
 | [container-port.toml](../config/shopfloor/container-port.toml) | A ship, quay cranes, a container yard and fast vehicles | 400×200 m | `container_flow`, `high_wind` | [config_shopfloor_port_tcp.toml](../config/examples/config_shopfloor_port_tcp.toml) |
@@ -307,7 +310,7 @@ Every event is **one flat JSON object** with the same envelope:
 {"v":1,"seq":88,"ts":1761730012300,"sim_ms":12300,"kind":"action","entity":"mm1","action":"pick","command_id":7,"x":10.0,"y":8.0,"at":"machine2","origin":"ui"}
 ```
 
-The exact strings are pinned by golden tests in [sim/src/event.rs](sim/src/event.rs).
+The exact strings are pinned in [sim/src/event.rs](sim/src/event.rs).
 
 Schema version rule:
 - **Adding** a kind or a field keeps `v`. Consumers should ignore what they don't know.
