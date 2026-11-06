@@ -1,0 +1,82 @@
+# Shopfloor -> Liminal over TCP: warn when MM 1 and MM 2 get too close
+#
+# The simulator doesn't avoid or report collisions, so this pipeline works them out from the position stream
+# of config/shopfloor/sample-floor.toml. The simulator listens on 127.0.0.1:9000; this pipeline connects to it
+# and reconnects whenever the simulator restarts, so either side can start first.
+#
+#   cd shopfloor && cargo run -p shopfloor-cli -- run ../config/shopfloor/sample-floor.toml --scene production
+#   cargo run -- --config config/examples/config_shopfloor_collision_tcp.toml
+#
+# (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).
+#
+# Flow: shopfloor events -> one rule stage per MM -> fusion -> distance and alert -> console
+
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.collision_warning]
+description = "Warn when MM 1 and MM 2 get too close"
+
+# One stage per MM, each giving a channel with just that MM's position.
+[pipelines.collision_warning.stages.mm1_position]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "mm1_position"
+
+[[pipelines.collision_warning.stages.mm1_position.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "position" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.collision_warning.stages.mm1_position.parameters.rules]]
+condition = { field_path = "entity", operation = "equals", value = "mm1" }
+actions = [{ type = "keep_only_fields", field_paths = ["x", "y"] }]
+else_actions = [{ type = "drop_message" }]
+
+[pipelines.collision_warning.stages.mm2_position]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "mm2_position"
+
+[[pipelines.collision_warning.stages.mm2_position.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "position" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.collision_warning.stages.mm2_position.parameters.rules]]
+condition = { field_path = "entity", operation = "equals", value = "mm2" }
+actions = [{ type = "keep_only_fields", field_paths = ["x", "y"] }]
+else_actions = [{ type = "drop_message" }]
+
+# Combine them: { "mm1_position": { "x": ..., "y": ... }, "mm2_position": { "x": ..., "y": ... } }
+# `latest_by_input` remembers each MM's last position, which stays right while it is parked and silent.
+[pipelines.collision_warning.stages.positions]
+type = "fusion"
+inputs = ["mm1_position", "mm2_position"]
+output = "mm_positions"
+parameters = { mode = "latest_by_input" }
+
+# The distance is between the MMs' centres. Each has a radius of 0.35 m, so below 0.7 m they are touching.
+[pipelines.collision_warning.stages.collision_warning]
+type = "rule"
+inputs = ["mm_positions"]
+output = "collision_warnings"
+
+[[pipelines.collision_warning.stages.collision_warning.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "compute_field", field_path = "distance_m", expression = "sqrt((mm1_position.x - mm2_position.x)^2 + (mm1_position.y - mm2_position.y)^2)" }]
+
+[[pipelines.collision_warning.stages.collision_warning.parameters.rules]]
+condition = { field_path = "distance_m", operation = "<", value = 2.0 }
+actions = [{ type = "set_field", field_path = "alert", value = "too close" }]
+else_actions = [{ type = "drop_message" }]
+
+[[pipelines.collision_warning.stages.collision_warning.parameters.rules]]
+condition = { field_path = "distance_m", operation = "<", value = 0.7 }
+actions = [{ type = "set_field", field_path = "alert", value = "collision" }]
+
+[outputs.collision_log]
+type = "console"
+inputs = ["collision_warnings"]
