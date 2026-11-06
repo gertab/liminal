@@ -24,7 +24,7 @@ description = "Split the shopfloor stream: MM activity, sensor readings, vibrati
 # Sensor readings only.
 [pipelines.shopfloor.stages.sensors]
 type = "rule"
-inputs = ["shopfloor_events"]
+inputs = ["shopfloor_events", "vibration_alerts"]
 output = "sensor_readings"
 
 [[pipelines.shopfloor.stages.sensors.parameters.rules]]

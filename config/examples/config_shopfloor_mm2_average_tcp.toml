@@ -1,4 +1,4 @@
-# Shopfloor → Liminal over TCP: the average of MM 2's three vibration sensors
+# Shopfloor -> Liminal over TCP: the average of MM 2's three vibration sensors
 #
 # Consumes the event stream of config/shopfloor/sample-floor.toml (see shopfloor/README.md). The simulator
 # listens on 127.0.0.1:9000; this pipeline connects to it and reconnects whenever the simulator restarts,
@@ -9,7 +9,7 @@
 #
 # (or run the shopfloor app, and run this config from the Liminal GUI).
 #
-# Flow: shopfloor events → one rule stage per sensor → fusion → compute the average → console
+# Flow: shopfloor events -> one rule stage per sensor -> fusion -> compute the average -> console
 
 [inputs.shopfloor]
 type = "tcp_input"
