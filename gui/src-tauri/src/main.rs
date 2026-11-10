@@ -14,6 +14,7 @@ use commands::files::{
     pick_workspace_folder, save_config_as, save_config_text,
 };
 use commands::runtime::{pipeline_runtime_state, start_pipeline, stop_pipeline, PipelineRuntime};
+use tauri::Manager;
 
 #[cfg(test)]
 use commands::runtime::preflight_processors;
@@ -68,8 +69,15 @@ fn main() {
             update_node_parameter,
             update_node_parameter_draft
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Liminal Pipeline GUI");
+        .build(tauri::generate_context!())
+        .expect("error while running Liminal Pipeline GUI")
+        .run(|app, event| {
+            // A running pipeline stops with the GUI. If the GUI is killed instead, the pipeline
+            // stops by itself (`--exit-with-parent`).
+            if let tauri::RunEvent::Exit = event {
+                let _ = app.state::<PipelineRuntime>().stop();
+            }
+        });
 }
 
 #[cfg(test)]

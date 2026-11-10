@@ -372,16 +372,29 @@ impl PipelineManager {
 
     /// Wait for all stages to complete and handle termination signals.
     pub async fn wait_for_all(self) -> Result<()> {
+        self.wait_for_all_or(std::future::pending()).await
+    }
+
+    /// Like `wait_for_all`, but also shuts down when `stop` completes.
+    pub async fn wait_for_all_or<F>(self, stop: F) -> Result<()>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
         let observer = self.observer.clone();
         let control_channel_clone = self.control_channel.clone();
 
-        // Listen for Ctrl+C signal
+        // Listen for Ctrl+C signal, or the caller's stop
         tokio::spawn(async move {
-            if let Err(e) = tokio::signal::ctrl_c().await {
-                tracing::error!("Failed to listen for Ctrl + C: {}", e);
+            tokio::select! {
+                result = tokio::signal::ctrl_c() => {
+                    if let Err(e) = result {
+                        tracing::error!("Failed to listen for Ctrl + C: {}", e);
+                    }
+                    tracing::info!("Received Ctrl+C -> shutting down.");
+                }
+                _ = stop => {}
             }
 
-            tracing::info!("Received Ctrl+C -> shutting down.");
             let _ = control_channel_clone
                 .as_ref()
                 .unwrap()

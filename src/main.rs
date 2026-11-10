@@ -46,7 +46,15 @@ struct Cli {
     /// Emit structured runtime events for integrations.
     #[arg(long, value_enum, default_value_t = RuntimeEventsMode::Off)]
     runtime_events: RuntimeEventsMode,
+
+    /// Shut down when the parent process (such as the GUI) exits or is killed. The parent must
+    /// keep stdin open: the pipeline stops when stdin closes. Data inputs are not affected.
+    #[arg(long)]
+    exit_with_parent: bool,
 }
+
+/// How long stages get to finish after the parent goes away before the process exits anyway.
+const PARENT_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum RuntimeEventsMode {
@@ -138,8 +146,38 @@ async fn main() {
         }
     };
 
-    let _ = pipeline_manager.wait_for_all().await;
+    let exit_with_parent = cli.exit_with_parent;
+    let stop = async move {
+        if !exit_with_parent {
+            return std::future::pending().await;
+        }
+        stdin_closed().await;
+        tracing::info!("Parent closed stdin -> shutting down.");
+        // A stage that doesn't stop must not keep the process alive with no parent.
+        tokio::spawn(async {
+            tokio::time::sleep(PARENT_EXIT_GRACE).await;
+            tracing::error!(
+                "Stages did not stop within {} s of the parent going away -> exiting.",
+                PARENT_EXIT_GRACE.as_secs()
+            );
+            std::process::exit(1);
+        });
+    };
+
+    let _ = pipeline_manager.wait_for_all_or(stop).await;
 
     // Pipeline terminated
     tracing::info!("All input sources have been processed.");
+}
+
+/// Completes when stdin reaches end of file: the parent closed it, exited or was killed.
+async fn stdin_closed() {
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<()>();
+    // A plain thread rather than tokio's stdin, whose blocking read can't be cancelled and would
+    // hold up the runtime's shutdown after Ctrl+C.
+    std::thread::spawn(move || {
+        let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+        let _ = closed_tx.send(());
+    });
+    let _ = closed_rx.await;
 }
