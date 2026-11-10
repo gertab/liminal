@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, State};
@@ -14,12 +14,39 @@ use crate::paths::{repo_root, resolve_config_path};
 
 #[derive(Clone, Default)]
 pub(crate) struct PipelineRuntime {
-    process_id: Arc<StdMutex<Option<u32>>>,
+    running: Arc<StdMutex<Option<RunningPipeline>>>,
+}
+
+struct RunningPipeline {
+    process_id: u32,
+    /// Held open while the pipeline runs. Liminal runs with `--exit-with-parent`, so if the GUI
+    /// dies without stopping it (killed, crashed, relaunched by `tauri dev`), the OS closes this pipe
+    /// and the pipeline stops too.
+    _stdin: Option<ChildStdin>,
+}
+
+impl PipelineRuntime {
+    /// Stops the running pipeline, if there is one.
+    pub(crate) fn stop(&self) -> Result<(), String> {
+        let running = self
+            .running
+            .lock()
+            .map_err(|_| "Pipeline runtime lock is poisoned".to_string())?
+            .take();
+
+        let Some(running) = running else {
+            return Ok(());
+        };
+
+        terminate_process(running.process_id)
+    }
 }
 
 struct RuntimeCommand {
     command: Command,
     launcher: String,
+    /// A copy of the binary made for this run, deleted when the run ends.
+    copied_binary: Option<PathBuf>,
 }
 
 #[derive(Clone, Serialize)]
@@ -56,11 +83,11 @@ pub(crate) fn start_pipeline(
     preflight_processors(&config)?;
 
     {
-        let running_process = runtime
-            .process_id
+        let running = runtime
+            .running
             .lock()
             .map_err(|_| "Pipeline runtime lock is poisoned".to_string())?;
-        if running_process.is_some() {
+        if running.is_some() {
             return Err("A pipeline is already running.".to_string());
         }
     }
@@ -68,6 +95,7 @@ pub(crate) fn start_pipeline(
     let RuntimeCommand {
         mut command,
         launcher,
+        copied_binary,
     } = pipeline_command(&resolved_path)?;
     emit_pipeline_log(
         &window,
@@ -80,6 +108,7 @@ pub(crate) fn start_pipeline(
     );
 
     let mut child = command
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -90,11 +119,14 @@ pub(crate) fn start_pipeline(
     let stderr = child.stderr.take();
 
     {
-        let mut running_process = runtime
-            .process_id
+        let mut running = runtime
+            .running
             .lock()
             .map_err(|_| "Pipeline runtime lock is poisoned".to_string())?;
-        *running_process = Some(process_id);
+        *running = Some(RunningPipeline {
+            process_id,
+            _stdin: child.stdin.take(),
+        });
     }
 
     emit_pipeline_state(
@@ -111,13 +143,16 @@ pub(crate) fn start_pipeline(
         spawn_pipeline_log_reader(window.clone(), "stderr", stderr);
     }
 
-    let runtime_process_id = runtime.process_id.clone();
+    let runtime_running = runtime.running.clone();
     std::thread::spawn(move || {
         let exit_result = child.wait();
-        if let Ok(mut running_process) = runtime_process_id.lock() {
-            if *running_process == Some(process_id) {
-                *running_process = None;
+        if let Ok(mut running) = runtime_running.lock() {
+            if running.as_ref().map(|running| running.process_id) == Some(process_id) {
+                *running = None;
             }
+        }
+        if let Some(copied_binary) = copied_binary {
+            let _ = fs::remove_file(copied_binary);
         }
 
         let message = match exit_result {
@@ -165,30 +200,18 @@ pub(crate) fn preflight_processors(config: &Config) -> Result<(), String> {
 
 #[tauri::command]
 pub(crate) fn stop_pipeline(runtime: State<'_, PipelineRuntime>) -> Result<(), String> {
-    let process_id = {
-        let mut running_process = runtime
-            .process_id
-            .lock()
-            .map_err(|_| "Pipeline runtime lock is poisoned".to_string())?;
-        running_process.take()
-    };
-
-    let Some(process_id) = process_id else {
-        return Ok(());
-    };
-
-    terminate_process(process_id)
+    runtime.stop()
 }
 
 #[tauri::command]
 pub(crate) fn pipeline_runtime_state(
     runtime: State<'_, PipelineRuntime>,
 ) -> Result<String, String> {
-    let running_process = runtime
-        .process_id
+    let running = runtime
+        .running
         .lock()
         .map_err(|_| "Pipeline runtime lock is poisoned".to_string())?;
-    Ok(if running_process.is_some() {
+    Ok(if running.is_some() {
         "running".to_string()
     } else {
         "idle".to_string()
@@ -196,16 +219,16 @@ pub(crate) fn pipeline_runtime_state(
 }
 
 fn pipeline_command(config_path: &Path) -> Result<RuntimeCommand, String> {
+    let mut copied_binary = None;
     let (mut command, launcher) = if let Ok(binary_path) = std::env::var("LIMINAL_BIN") {
         let command = Command::new(&binary_path);
         (command, format!("LIMINAL_BIN ({binary_path})"))
     } else if should_launch_runtime_with_cargo() {
         let runtime_binary = prepare_cargo_runtime_binary()?;
         let command = Command::new(&runtime_binary);
-        (
-            command,
-            format!("cargo-built binary ({})", runtime_binary.display()),
-        )
+        let launcher = format!("cargo-built binary ({})", runtime_binary.display());
+        copied_binary = Some(runtime_binary);
+        (command, launcher)
     } else {
         let candidate = repo_root()
             .join("target")
@@ -227,9 +250,14 @@ fn pipeline_command(config_path: &Path) -> Result<RuntimeCommand, String> {
         .arg("--config")
         .arg(config_path)
         .arg("--runtime-events")
-        .arg("jsonl");
+        .arg("jsonl")
+        .arg("--exit-with-parent");
     command.current_dir(repo_root());
-    Ok(RuntimeCommand { command, launcher })
+    Ok(RuntimeCommand {
+        command,
+        launcher,
+        copied_binary,
+    })
 }
 
 fn should_launch_runtime_with_cargo() -> bool {
@@ -283,6 +311,7 @@ fn prepare_cargo_runtime_binary() -> Result<PathBuf, String> {
     let run_dir = repo_root().join("target").join("gui-runtime-runs");
     fs::create_dir_all(&run_dir)
         .map_err(|error| format!("Failed to create '{}': {}", run_dir.display(), error))?;
+    remove_stale_runtime_binaries(&run_dir);
     let runtime_binary = run_dir.join(format!(
         "liminal-{}-{}{}",
         std::process::id(),
@@ -300,6 +329,20 @@ fn prepare_cargo_runtime_binary() -> Result<PathBuf, String> {
     })?;
 
     Ok(runtime_binary)
+}
+
+/// Removes copies left behind by runs whose GUI died before they ended. Only one pipeline runs at a
+/// time, so none of them is this GUI's. Removing a binary that is still running is fine on Unix; on
+/// Windows it fails, and the copy is removed on a later run.
+fn remove_stale_runtime_binaries(run_dir: &Path) {
+    let Ok(entries) = fs::read_dir(run_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy().starts_with("liminal-") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn runtime_binary_suffix() -> u128 {
