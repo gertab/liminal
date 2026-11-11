@@ -406,31 +406,20 @@ the GUI at a specific Liminal executable.
 
 ## Shopfloor simulator
 
-The shopfloor simulator is a separate project (`shopfloor-sim`): a desktop app and command-line tool that model a
-shopfloor (machines, mobile manipulators, sensors) and stream its events. Its scenarios stream over TCP on
-`127.0.0.1:9000`, where Liminal's `tcp_input` connects as a client, and the sample floor also publishes to MQTT. These
-example configs consume it:
+[shopfloor-sim](https://github.com/gertab/shopfloor-sim) simulates a shopfloor (machines, mobile manipulators and
+sensors) and streams its events over TCP and MQTT. The `config/examples/config_shopfloor_*.toml` configs process that
+stream.
 
-| Config | Scenario (scene) | What it shows |
-|---|---|---|
-| `config_shopfloor_vibr_tcp.toml` | `sample-floor.toml` (`production`) | Vibration readings above 1.0 g |
-| `config_shopfloor_tcp_2.toml` | `sample-floor.toml` (`production`) | MM activity: moves, arrivals, actions, scene events |
-| `config_shopfloor_collision_tcp.toml` | `sample-floor.toml` (`production`) | Warn when MM 1 and MM 2 get too close |
-| `config_shopfloor_mm2_average_tcp.toml` | `sample-floor.toml` (`production`) | The average of MM 2's three vibration sensors |
-| `config_shopfloor_parked_vibration_tcp.toml` | `sample-floor.toml` (`production`) | High vibration on MM 1 while it is parked |
-| `config_shopfloor_no_go_zone_tcp.toml` | `sample-floor.toml` (send MM 1 to the bottom-left corner in the app) | MM 1 inside the no-go zone (0, 0) to (2, 2) |
-| `config_shopfloor_mqtt.toml` | `sample-floor.toml` (`production`), over MQTT | Vibration alerts and MM 1's actions, from two topics (needs a broker) |
-| `config_shopfloor_datacentre_tcp.toml` | `data-centre.toml` (`cooling_failure`) | Overheating racks and what the robots do about them |
-| `config_container_port_tcp.toml` | `container-port.toml` (`high_wind`) | Wind and gate alerts, and the containers moving around the terminal |
+To try one, run the simulator and a pipeline, in either order:
 
 ```bash
-# in shopfloor-sim: the simulator (or open the scenario in its app and play the scene)
+# in shopfloor-sim
 cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production
-# here: the pipeline (or open the config in the Liminal GUI and press Run)
+# here
 cargo run -- --config config/examples/config_shopfloor_vibr_tcp.toml
 ```
 
-Either side can start first: `tcp_input` reconnects until the simulator is listening.
+The pipeline prints an alert whenever a vibration sensor reads above 1.0 g.
 
 ## Citation
 
