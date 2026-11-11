@@ -1929,7 +1929,6 @@ dependencies = [
  "futures",
  "rand",
  "rand_distr",
- "regex",
  "rumqttc",
  "serde",
  "serde_json",
