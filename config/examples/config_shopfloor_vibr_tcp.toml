@@ -1,0 +1,54 @@
+# Shopfloor → Liminal over TCP
+#
+# Consumes the event stream of the shopfloor simulator (the separate shopfloor-sim project). It listens
+# on 127.0.0.1:9000 (`[output.sinks.tcp]` in its scenarios/sample-floor.toml); this pipeline
+# connects to it and reconnects whenever the simulator restarts, so either side can start first.
+#
+#   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
+#   cargo run -- --config config/examples/config_shopfloor_vibr_tcp.toml
+#
+# (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).
+#
+# Every event arrives as one JSON payload with a top-level `kind` (position, move_command, arrived,
+# stopped, action, sensor, sensor_set, scene, sim); the stages below route on it.
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.shopfloor]
+description = "Split the shopfloor stream: MM activity, sensor readings, vibration alerts"
+
+# Sensor readings only.
+[pipelines.shopfloor.stages.sensors]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "sensor_readings"
+
+[[pipelines.shopfloor.stages.sensors.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+# Vibration readings above 1.0 g, flagged and trimmed.
+[pipelines.shopfloor.stages.vibration_alerts]
+type = "rule"
+inputs = ["sensor_readings"]
+output = "vibration_alerts"
+
+[[pipelines.shopfloor.stages.vibration_alerts.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "vibration" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.shopfloor.stages.vibration_alerts.parameters.rules]]
+condition = { field_path = "value", operation = ">", value = 1.0 }
+actions = [
+    { type = "set_field", field_path = "alert", value = "high vibration" },
+    { type = "keep_only_fields", field_paths = ["ts", "sensor", "entity", "value", "unit", "x", "y", "alert"] },
+]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.shopfloor_log]
+type = "console"
+inputs = ["vibration_alerts"]

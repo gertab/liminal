@@ -1,0 +1,56 @@
+# Shopfloor -> Liminal over MQTT: two separate subscriptions
+#
+# Reads two topics published by the shopfloor simulator's `mqtt` output (see "Streaming over MQTT" in its README),
+# each over its own connection to the broker:
+#   - shopfloor/sensors: sensor readings, flagged when a vibration sensor reads above 1.0 g;
+#   - shopfloor/mm1: everything about MM 1, trimmed to the actions it performs.
+#
+#   docker run -it -p 1883:1883 eclipse-mosquitto
+#   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
+#   cargo run -- --config config/examples/config_shopfloor_mqtt.toml
+#
+# The scenario needs the `mqtt` output with those two topics, as in shopfloor-sim's scenarios/sample-floor.toml.
+
+[inputs.sensors]
+type = "mqtt_sub"
+output = "sensor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["shopfloor/sensors"] }
+
+[inputs.mm1]
+type = "mqtt_sub"
+output = "mm1_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["shopfloor/mm1"] }
+
+[pipelines.shopfloor]
+description = "Vibration alerts from the sensor topic, and MM 1's actions from its own topic"
+
+# Vibration readings above 1.0 g, flagged and trimmed. Within a rule, `keep_only_fields` runs before `set_field`, so
+# `alert` doesn't need listing.
+[pipelines.shopfloor.stages.vibration_alerts]
+type = "rule"
+inputs = ["sensor_events"]
+output = "vibration_alerts"
+
+[pipelines.shopfloor.stages.vibration_alerts.parameters]
+rules= [{ actions = [{ type = "drop_message" }], condition = { field_path = "sensor_kind", operation = "not_equals", value = "vibration" } }]
+
+# MM 1's actions (pick, place, ...), trimmed.
+[pipelines.shopfloor.stages.mm1_actions]
+type = "rule"
+inputs = ["mm1_events"]
+output = "mm1_actions"
+
+[[pipelines.shopfloor.stages.mm1_actions.parameters.rules]]
+condition = { field_path = "kind", operation = "equals", value = "action" }
+actions = [{ type = "keep_only_fields", field_paths = ["ts", "entity", "action", "at"] }]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.vibration_log]
+type = "console"
+inputs = ["vibration_alerts"]
+
+[outputs.mm1_log]
+type = "console"
+inputs = ["mm1_actions"]

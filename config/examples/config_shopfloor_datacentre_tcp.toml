@@ -1,0 +1,57 @@
+# Data centre → Liminal over TCP
+#
+# Consumes the event stream of the shopfloor simulator (the separate shopfloor-sim project) playing
+# scenarios/data-centre.toml. The simulator listens on 127.0.0.1:9000; this pipeline connects to it and
+# reconnects whenever the simulator restarts, so either side can start first.
+#
+#   cargo run --bin shopfloor -- run scenarios/data-centre.toml --scene cooling_failure   (in shopfloor-sim)
+#   cargo run -- --config config/examples/config_shopfloor_datacentre_tcp.toml
+#
+# (or open the scenario in the shopfloor app and play a scene there, and run this config from the Liminal GUI).
+
+[inputs.data_centre]
+type = "tcp_input"
+output = "hall_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.data_centre]
+description = "Overheating racks and what the robots do about them"
+
+# Rack inlet air above 32 °C, trimmed and flagged. Within a rule, `keep_only_fields` always runs before
+# `set_field`, so `alert` doesn't need listing.
+[pipelines.data_centre.stages.overheating_racks]
+type = "rule"
+inputs = ["hall_events"]
+output = "overheating_racks"
+
+[[pipelines.data_centre.stages.overheating_racks.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.data_centre.stages.overheating_racks.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "inlet_temp" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.data_centre.stages.overheating_racks.parameters.rules]]
+condition = { field_path = "value", operation = ">", value = 32.0 }
+actions = [
+    { type = "set_field", field_path = "alert", value = "rack overheating" },
+    { type = "keep_only_fields", field_paths = ["ts", "entity", "value", "unit"] },
+]
+else_actions = [{ type = "drop_message" }]
+
+# What the robots do, trimmed.
+[pipelines.data_centre.stages.robot_actions]
+type = "rule"
+inputs = ["hall_events"]
+output = "robot_actions"
+
+[[pipelines.data_centre.stages.robot_actions.parameters.rules]]
+condition = { field_path = "kind", operation = "equals", value = "action" }
+actions = [{ type = "keep_only_fields", field_paths = ["ts", "entity", "action", "at"] }]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.hall_log]
+type = "console"
+inputs = ["overheating_racks", "robot_actions"]

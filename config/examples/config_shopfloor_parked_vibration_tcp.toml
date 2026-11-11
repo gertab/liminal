@@ -1,0 +1,86 @@
+# Shopfloor -> Liminal over TCP: high vibration on MM 1 while it is parked
+#
+# Vibration while an MM is driving is expected; vibration while it is standing still is more suspicious. This pipeline
+# combines MM 1's speed (from its position reports) with its vibration readings, and alerts when the vibration is above
+# 1 g while the speed is 0. It uses scenarios/sample-floor.toml of the separate shopfloor-sim project: in the
+# `production` scene, MM 1's vibration is high from 15 s to 23 s, and it parks at the Stocker at about 22 s.
+#
+#   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
+#   cargo run -- --config config/examples/config_shopfloor_parked_vibration_tcp.toml
+#
+# (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).
+#
+# Flow: shopfloor events -> MM 1's speed, MM 1's vibration -> fusion -> "parked and shaking?" -> console
+
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.parked_vibration]
+description = "High vibration on MM 1 while it is parked"
+
+# MM 1's speed, from its position reports.
+[pipelines.parked_vibration.stages.mm1_speed]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "mm1_speed"
+
+[[pipelines.parked_vibration.stages.mm1_speed.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "position" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.parked_vibration.stages.mm1_speed.parameters.rules]]
+condition = { field_path = "entity", operation = "equals", value = "mm1" }
+actions = [{ type = "keep_only_fields", field_paths = ["speed_mps"] }]
+else_actions = [{ type = "drop_message" }]
+
+# MM 1's vibration readings.
+[pipelines.parked_vibration.stages.mm1_vibration]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "mm1_vibration"
+
+[[pipelines.parked_vibration.stages.mm1_vibration.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.parked_vibration.stages.mm1_vibration.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "mm1.vibration" }
+actions = [{ type = "keep_only_fields", field_paths = ["value", "ts"] }]
+else_actions = [{ type = "drop_message" }]
+
+# Combine them: { "mm1_speed": { "speed_mps": … }, "mm1_vibration": { "value": …, "ts": … } }
+# `latest_by_input` remembers MM 1's last speed, which stays right while it is parked and silent.
+[pipelines.parked_vibration.stages.speed_and_vibration]
+type = "fusion"
+inputs = ["mm1_speed", "mm1_vibration"]
+output = "speed_and_vibration"
+parameters = { mode = "latest_by_input" }
+
+# Parked (speed 0) and shaking (above 1 g)? A condition can test only one field, so the two tests are combined into a
+# number first.
+[pipelines.parked_vibration.stages.parked_and_shaking]
+type = "rule"
+inputs = ["speed_and_vibration"]
+output = "parked_and_shaking"
+
+[[pipelines.parked_vibration.stages.parked_and_shaking.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "compute_field", field_path = "flag", expression = "if(mm1_speed.speed_mps == 0.0 && mm1_vibration.value > 1.0, 1.0, 0.0)" }]
+
+[[pipelines.parked_vibration.stages.parked_and_shaking.parameters.rules]]
+condition = { field_path = "flag", operation = ">", value = 0.5 }
+actions = [
+    { type = "compute_field", field_path = "vibration_g", expression = "mm1_vibration.value" },
+    { type = "compute_field", field_path = "ts", expression = "mm1_vibration.ts" },
+    { type = "keep_only_fields", field_paths = [] },
+    { type = "set_field", field_path = "alert", value = "MM 1 shaking while parked" },
+]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.parked_vibration_log]
+type = "console"
+inputs = ["parked_and_shaking"]
