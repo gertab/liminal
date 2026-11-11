@@ -1711,6 +1711,128 @@ button {
   opacity: 0.42;
 }
 
+/* Parameter rows: remove button and "not used" note */
+.parameter-label:has(.parameter-remove) {
+  justify-content: flex-start;
+}
+
+.parameter-label:has(.parameter-remove) strong {
+  margin-right: auto;
+}
+
+.parameter-row button.parameter-remove,
+.object-list-row-actions button.icon-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border-color: #24383c;
+  color: #94aaa6;
+  background: #0d1517;
+}
+
+.parameter-row button.parameter-remove,
+.object-list-row-actions button.icon-button.danger {
+  border-color: #3f2a2b;
+  color: #d59b96;
+  background: #171112;
+}
+
+.parameter-row button.parameter-remove:hover:not(:disabled),
+.object-list-row-actions button.icon-button.danger:hover:not(:disabled) {
+  border-color: #85423f;
+  color: #ffd2cd;
+}
+
+.object-list-row-actions button.icon-button:not(.danger):hover:not(:disabled) {
+  border-color: #4c817d;
+  color: #e6fbf7;
+  background: #132325;
+}
+
+.parameter-note {
+  grid-column: 1 / -1;
+  margin: -3px 0 0;
+  color: #d9c174;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+/* Object list editor (renderer = "object_list") */
+.object-list-editor {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.object-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 8px 0;
+  border-bottom: 1px solid #1d2d31;
+}
+
+.object-list-row:first-child {
+  border-top: 1px solid #1d2d31;
+}
+
+.object-list-fields {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 6px;
+}
+
+.object-list-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.object-list-field span {
+  overflow: hidden;
+  color: #82938f;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.object-list-field input[type="text"],
+.object-list-field input[type="number"],
+.object-list-field select {
+  width: 100%;
+}
+
+.object-list-row-actions {
+  display: flex;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+.object-list-row-actions button.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.object-list-issues {
+  margin: 0;
+  padding: 7px 8px 7px 22px;
+  border-radius: 6px;
+  color: #f0b7ae;
+  background: rgba(44, 24, 22, 0.55);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .rule-editor {
   display: flex;
   min-width: 0;

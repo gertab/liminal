@@ -1,7 +1,9 @@
 use crate::core::message::Message;
 /// Timing mixin for processors that provides common timing functionality
 /// This encapsulates all timing-related state and behavior that every processor needs
-use crate::core::timing::{TimingConfig, TimingHelpers, WatermarkManager};
+use crate::core::timing::{
+    TimingConfig, TimingHelpers, WatermarkManager, WatermarkStrategy, epoch_millis,
+};
 use std::time::SystemTime;
 use tokio::time::Duration;
 
@@ -137,6 +139,60 @@ impl TimingMixin {
     }
 }
 
+/// The watermark of a stage that holds messages over time (such as `window`): how far its input
+/// has progressed, so it can tell which time spans are complete.
+///
+/// It follows the stage's timing configuration:
+/// - with a punctuated or heuristic `watermark_strategy`, the watermark that strategy derives from
+///   the input messages themselves (a `WatermarkManager` that sees each one);
+/// - otherwise (no strategy, or periodic), the wall clock minus the stage's `max_lateness_ms`, or
+///   minus `default_lateness_ms` when the stage has no `[timing]` block. It's evaluated whenever
+///   asked, so it moves on even when no messages arrive.
+///
+/// This is separate from the `TimingMixin`'s own watermark manager, which stamps the messages the
+/// stage creates.
+#[derive(Debug)]
+pub enum StageWatermark {
+    WallClock { lateness_ms: u64 },
+    EventTime(WatermarkManager),
+}
+
+impl StageWatermark {
+    pub fn for_stage(timing: &TimingMixin, default_lateness_ms: u64) -> Self {
+        match &timing.timing_config().watermark_strategy {
+            WatermarkStrategy::Punctuated { .. } | WatermarkStrategy::Heuristic { .. } => {
+                Self::EventTime(WatermarkManager::new(timing.timing_config().clone()))
+            }
+            WatermarkStrategy::None | WatermarkStrategy::Periodic { .. } => Self::WallClock {
+                lateness_ms: timing
+                    .source_timing_config()
+                    .map_or(default_lateness_ms, |config| config.max_lateness_ms),
+            },
+        }
+    }
+
+    /// Lets an event-time watermark see an input message.
+    pub fn observe(&mut self, message: &Message) {
+        if let Self::EventTime(watermarks) = self {
+            watermarks.update_watermark(message);
+        }
+    }
+
+    /// The watermark in epoch milliseconds, given the wall clock `now_ms`. `None` until an
+    /// event-time watermark has seen enough messages to produce one. An event-time watermark can
+    /// move backwards (it is the strategy's latest value).
+    pub fn current_ms(&self, now_ms: u64) -> Option<u64> {
+        match self {
+            Self::WallClock { lateness_ms } => Some(now_ms.saturating_sub(*lateness_ms)),
+            Self::EventTime(watermarks) => watermarks.current_watermark().map(epoch_millis),
+        }
+    }
+
+    pub fn follows_event_time(&self) -> bool {
+        matches!(self, Self::EventTime(_))
+    }
+}
+
 /// Trait for processors that use the timing mixin
 /// This provides a standard interface for timing operations
 pub trait WithTimingMixin {
@@ -179,5 +235,51 @@ impl<T: WithTimingMixin> crate::core::timing::TimingProcessor for T {
 
     fn watermark_manager(&mut self) -> &mut WatermarkManager {
         self.timing_mixin_mut().watermark_manager()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::time::UNIX_EPOCH;
+
+    fn timing(config: serde_json::Value) -> TimingMixin {
+        let config: crate::config::TimingConfig =
+            serde_json::from_value(config).expect("timing config parses");
+        TimingMixin::new(Some(&config))
+    }
+
+    #[test]
+    fn stage_watermark_trails_the_wall_clock_by_the_lateness() {
+        let without_timing = StageWatermark::for_stage(&TimingMixin::new(None), 250);
+        assert_eq!(without_timing.current_ms(10_000), Some(9_750));
+
+        let with_timing =
+            StageWatermark::for_stage(&timing(json!({ "max_lateness_ms": 1000 })), 250);
+        assert_eq!(with_timing.current_ms(10_000), Some(9_000));
+        assert!(!with_timing.follows_event_time());
+    }
+
+    #[test]
+    fn stage_watermark_follows_a_punctuated_strategy() {
+        let mut watermark = StageWatermark::for_stage(
+            &timing(json!({
+                "watermark_strategy": { "type": "punctuated", "field": "wm" },
+                "max_lateness_ms": 100
+            })),
+            250,
+        );
+        assert!(watermark.follows_event_time());
+        assert_eq!(watermark.current_ms(10_000), None);
+
+        let message = Message::new_with_event_time(
+            "s",
+            "t",
+            json!({ "wm": 5_000 }),
+            UNIX_EPOCH + Duration::from_millis(5_000),
+        );
+        watermark.observe(&message);
+        assert_eq!(watermark.current_ms(10_000), Some(4_900));
     }
 }

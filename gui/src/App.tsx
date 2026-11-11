@@ -569,6 +569,31 @@ function App() {
     },
     [applyDraftEdit, draftContent],
   );
+  const removeNodeParameter = useCallback(
+    async (nodeId: string, parameterKey: string) => {
+      if (draftContent === null) {
+        setError("No editable draft is loaded.");
+        setSaveState("error");
+        return;
+      }
+
+      setSaveState("saving");
+      setError(null);
+
+      try {
+        const edit = await invoke<DraftEditResult>("remove_node_parameter_draft", {
+          content: draftContent,
+          nodeId,
+          parameterKey,
+        });
+        applyDraftEdit(edit, nodeId);
+      } catch (caught) {
+        setError(String(caught));
+        setSaveState("error");
+      }
+    },
+    [applyDraftEdit, draftContent],
+  );
   const connectGraphNodes = useCallback(
     async (sourceNodeId: string, targetNodeId: string) => {
       if (draftContent === null) {
@@ -1210,6 +1235,7 @@ function App() {
               onSelectEdge={selectEdge}
               onUpdateNodeParameter={updateNodeParameter}
               onUpdateNodeParameterJson={updateNodeParameterJson}
+              onRemoveNodeParameter={removeNodeParameter}
               onUpdateNodeField={updateNodeField}
               onDisconnectEdge={disconnectGraphEdge}
               onDeleteNode={deleteGraphNode}

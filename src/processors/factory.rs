@@ -38,7 +38,7 @@
 
 use crate::processors::{
     Processor,
-    aggregator::FusionStage,
+    aggregator::{FusionStage, WindowStage},
     input::{MqttInputProcessor, SimulatedSignalProcessor, TcpInputProcessor},
     output::{
         ConsoleOutputProcessor, FileOutputProcessor, MqttOutputProcessor, TcpOutputProcessor,
@@ -173,6 +173,7 @@ pub fn register_processor(name: &str, constructor: ProcessorConstructor) {
 /// - `"simulated"` - Generates simulated signal data
 /// - `"rule"` - Applies conditional transformations and filtering
 /// - `"fusion"` - Combines data from multiple inputs
+/// - `"window"` - Aggregates the messages of a time span or the last N messages, per key
 /// - `"console"` - Outputs received messages to console
 /// - `"file"` - Outputs received messages to file
 /// - `"mqtt_sub"` - Subscribes to MQTT topics for input
@@ -191,6 +192,7 @@ fn ensure_default_processors() {
         register_processor("simulated", Box::new(SimulatedSignalProcessor::new));
         register_processor("rule", Box::new(RuleProcessor::new));
         register_processor("fusion", Box::new(FusionStage::new));
+        register_processor("window", Box::new(WindowStage::new));
         register_processor("console", Box::new(ConsoleOutputProcessor::new));
         register_processor("file", Box::new(FileOutputProcessor::new));
 

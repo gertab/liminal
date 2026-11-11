@@ -79,6 +79,10 @@ Liminal uses a message-passing architecture where:
 **Transform Processors:**
 - **`rule`**: Conditional logic and field transformations with mathematical expressions
 
+**Aggregator Processors:**
+- **`fusion`**: Combine messages from several inputs into one
+- **`window`**: Aggregate the messages of a time span, or the last N messages, per key (count, avg, min, max, std, …)
+
 **Output Processors:**
 - **`console`**: Display messages to stdout
 - **`file`**: Write messages to files with configurable formats
@@ -160,6 +164,52 @@ else_actions = [
 ```
 
 Available actions: `set_field`, `compute_field`, `copy_field`, `rename_field`, `remove_field`, `keep_only_fields`, `pass_through`, `drop_message`
+
+### Windows
+
+A `window` stage collects messages over a time span, or the last N messages, and outputs aggregates over them.
+With `group_by`, each key (for example each sensor) gets its own windows.
+
+```toml
+[pipelines.health.stages.vibration_stats]
+type = "window"
+inputs = ["vibration"]
+output = "vibration_stats"
+
+[pipelines.health.stages.vibration_stats.parameters]
+kind = "tumbling"                 # tumbling | sliding | last_n
+size_ms = 10000
+group_by = ["sensor"]
+aggregates = [
+  { function = "avg", field = "value", as = "avg" },
+  { function = "std", field = "value", as = "std" },
+  { function = "count", as = "readings" },
+]
+```
+
+Each result is one message: the `group_by` fields, `window_start` and `window_end` (epoch ms), and each aggregate,
+e.g. `{"sensor": "s1", "window_start": 1762790000000, "window_end": 1762790010000, "avg": 0.10, "std": 0.01, "readings": 20}`.
+
+| `kind` | Window | `emit = "on_close"` (default) | `emit = "every_message"` |
+|---|---|---|---|
+| `tumbling` (`size_ms`) | back-to-back windows, aligned to the clock | once per window | the current window, with every message |
+| `sliding` (`size_ms`, `slide_ms`) | the last `size_ms` | every `slide_ms` | the last `size_ms`, with every message (no `slide_ms`) |
+| `last_n` (`size_n`) | the last N messages | every N messages | the last N, with every message |
+
+- **Aggregates:** `count`, `distinct_count`, `sum`, `avg`, `min`, `max`, `spread` (max − min) and `std` (population).
+  `count` counts the window's messages; the others need a `field`, and skip messages where it's missing or not a
+  number. `as` names the result; the default is `<field>_<function>` (or `count`).
+- **Time:** time windows use each message's event time (see [Timing Semantics](#timing-semantics)): when the input
+  received it, or the payload field set by the input's `event_time_field`. A window is output once the stage's
+  watermark passes its end: the wall clock minus the stage's `timing.max_lateness_ms` (250 ms without a `timing`
+  block). With a `punctuated` or `heuristic` `watermark_strategy`, windows follow the messages' own times instead,
+  e.g. when replaying a recording. Messages too late for any window still open are dropped.
+- **Empty windows** output nothing, unless `emit_empty = true` (`count` 0, and `null` for the other aggregates).
+- `max_items` (default 100000) caps the messages kept per key. Unknown parameters are errors.
+- **In the GUI,** the inspector offers only the parameters that apply to the chosen `kind` and `emit` (e.g. `size_n`
+  for `last_n`), marks left-over ones as not used, with a button to remove them, and edits `aggregates` as a list.
+
+See [config/examples/config_window.toml](config/examples/config_window.toml).
 
 ## Advanced Features
 

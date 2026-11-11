@@ -16,6 +16,7 @@ import {
   MissingParameterRow,
   ParameterRow,
 } from "./ParameterEditors";
+import { fieldApplies, inapplicableReason, parameterValues } from "./fieldConditions";
 import {
   GraphChannel,
   GraphDiagnostic,
@@ -48,6 +49,7 @@ export function InspectorPanel({
   onSelectEdge,
   onUpdateNodeParameter,
   onUpdateNodeParameterJson,
+  onRemoveNodeParameter,
   onUpdateNodeField,
   onDisconnectEdge,
   onDeleteNode,
@@ -69,6 +71,7 @@ export function InspectorPanel({
   onSelectEdge: (edgeId: string | null) => void;
   onUpdateNodeParameter: (nodeId: string, parameterKey: string, value: string) => Promise<void>;
   onUpdateNodeParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
+  onRemoveNodeParameter: (nodeId: string, parameterKey: string) => Promise<void>;
   onUpdateNodeField: (nodeId: string, fieldKey: string, value: string) => Promise<void>;
   onDisconnectEdge: (targetNodeId: string, channelName: string) => Promise<void>;
   onDeleteNode: (nodeId: string) => Promise<void>;
@@ -159,6 +162,7 @@ export function InspectorPanel({
           onSelectChannel={selectChannel}
           onUpdateParameter={onUpdateNodeParameter}
           onUpdateParameterJson={onUpdateNodeParameterJson}
+          onRemoveParameter={onRemoveNodeParameter}
           onUpdateField={onUpdateNodeField}
           onDeleteNode={onDeleteNode}
           saveState={saveState}
@@ -186,6 +190,7 @@ function NodeInspector({
   onSelectChannel,
   onUpdateParameter,
   onUpdateParameterJson,
+  onRemoveParameter,
   onUpdateField,
   onDeleteNode,
   saveState,
@@ -202,6 +207,7 @@ function NodeInspector({
   onSelectChannel: (channelName: string | null) => void;
   onUpdateParameter: (nodeId: string, parameterKey: string, value: string) => Promise<void>;
   onUpdateParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
+  onRemoveParameter: (nodeId: string, parameterKey: string) => Promise<void>;
   onUpdateField: (nodeId: string, fieldKey: string, value: string) => Promise<void>;
   onDeleteNode: (nodeId: string) => Promise<void>;
   saveState: SaveState;
@@ -213,9 +219,12 @@ function NodeInspector({
     : null;
   const processorDescriptor =
     processorDescriptors.find((descriptor) => descriptor.type_name === node.processor_type) ?? null;
-  const knownParameterCount = processorDescriptor?.fields.length ?? 0;
   const parameterFields = processorDescriptor?.fields ?? [];
-  const missingParameterFields = parameterFields.filter(
+  const nodeValues = parameterValues(node.parameters, parameterFields);
+  // Fields that don't apply to this node (e.g. size_n for a tumbling window) aren't offered.
+  const applicableFields = parameterFields.filter((field) => fieldApplies(field, nodeValues));
+  const knownParameterCount = applicableFields.length;
+  const missingParameterFields = applicableFields.filter(
     (field) => !node.parameters.some((parameter) => parameter.key === field.key),
   );
 
@@ -380,17 +389,23 @@ function NodeInspector({
           <p className="empty-state">No processor parameters.</p>
         ) : (
           <div className="parameter-list">
-            {node.parameters.map((parameter) => (
-              <ParameterRow
-                key={parameter.key}
-                nodeId={node.id}
-                parameter={parameter}
-                fieldSpec={parameterFields.find((field) => field.key === parameter.key)}
-                saveState={saveState}
-                onUpdateParameter={onUpdateParameter}
-                onUpdateParameterJson={onUpdateParameterJson}
-              />
-            ))}
+            {node.parameters.map((parameter) => {
+              const fieldSpec = parameterFields.find((field) => field.key === parameter.key);
+              return (
+                <ParameterRow
+                  key={parameter.key}
+                  nodeId={node.id}
+                  parameter={parameter}
+                  fieldSpec={fieldSpec}
+                  applies={!fieldSpec || fieldApplies(fieldSpec, nodeValues)}
+                  inapplicableReason={fieldSpec && inapplicableReason(fieldSpec, nodeValues)}
+                  saveState={saveState}
+                  onUpdateParameter={onUpdateParameter}
+                  onUpdateParameterJson={onUpdateParameterJson}
+                  onRemoveParameter={onRemoveParameter}
+                />
+              );
+            })}
             {missingParameterFields.map((field) => (
               <MissingParameterRow
                 key={field.key}

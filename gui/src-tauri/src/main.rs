@@ -4,9 +4,9 @@ mod toml_editing;
 
 use commands::draft::{
     add_node, add_node_draft, connect_nodes, connect_nodes_draft, delete_node, delete_node_draft,
-    disconnect_edge, disconnect_edge_draft, update_node_field, update_node_field_draft,
-    update_node_parameter, update_node_parameter_draft, update_node_parameter_json,
-    update_node_parameter_json_draft,
+    disconnect_edge, disconnect_edge_draft, remove_node_parameter_draft, update_node_field,
+    update_node_field_draft, update_node_parameter, update_node_parameter_draft,
+    update_node_parameter_json, update_node_parameter_json_draft,
 };
 use commands::files::{
     copy_config_to_workspace, list_example_configs, list_processor_descriptors,
@@ -67,7 +67,8 @@ fn main() {
             update_node_parameter_json,
             update_node_parameter_json_draft,
             update_node_parameter,
-            update_node_parameter_draft
+            update_node_parameter_draft,
+            remove_node_parameter_draft
         ])
         .build(tauri::generate_context!())
         .expect("error while running Liminal Pipeline GUI")
@@ -146,6 +147,55 @@ actions = [{ type = "pass_through" }]
         assert!(edited.contains("# nested rule stays readable"));
         assert!(edited.contains("[[pipelines.rules.stages.filter.parameters.rules]]"));
         assert!(edited.contains("actions = [{ type = \"pass_through\" }]"));
+    }
+
+    #[test]
+    fn removes_inline_and_table_parameters() {
+        let mut document = parse_document(
+            r#"
+[inputs.sensor]
+type = "simulated"
+output = "raw_data"
+parameters = { field_out = "value", interval_ms = 1000 } # keep this comment
+
+[pipelines.p]
+description = "Windows"
+
+[pipelines.p.stages.stats]
+type = "window"
+inputs = ["raw_data"]
+output = "stats"
+
+[pipelines.p.stages.stats.parameters]
+kind = "last_n"
+size_ms = 10000 # left over from tumbling
+size_n = 5
+aggregates = [{ function = "count" }]
+"#,
+        );
+
+        remove_parameter(&mut document, "input:sensor", "interval_ms")
+            .expect("inline parameter is removed");
+        remove_parameter(&mut document, "pipeline:p.stage:stats", "size_ms")
+            .expect("table parameter is removed");
+        let error = remove_parameter(&mut document, "pipeline:p.stage:stats", "slide_ms")
+            .expect_err("a missing parameter can't be removed");
+        assert!(error.contains("does not exist"));
+
+        let edited = document.to_string();
+        assert!(edited.contains("# keep this comment"));
+        assert!(!edited.contains("size_ms"));
+        assert!(edited.contains("size_n = 5"));
+
+        let config = toml::from_str::<Config>(&edited).expect("edited config parses");
+        let sensor_parameters = config.inputs["sensor"]
+            .parameters
+            .clone()
+            .unwrap_or_default();
+        assert!(sensor_parameters.contains_key("field_out"));
+        assert!(!sensor_parameters.contains_key("interval_ms"));
+        let stage = config.pipelines["p"].stages["stats"].clone();
+        create_processor("window", stage).expect("the last_n window is valid without size_ms");
     }
 
     #[test]
@@ -610,6 +660,43 @@ description = "Default"
             .expect("new fusion stage exists")
             .clone();
         create_processor("fusion", stage).expect("descriptor-created fusion stage can be built");
+    }
+
+    #[test]
+    fn adds_window_aggregator_with_descriptor_defaults() {
+        let mut document = parse_document(
+            r#"
+[pipelines.default_pipeline]
+description = "Default"
+"#,
+        );
+        let descriptor = processor_descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.type_name == "window")
+            .expect("window descriptor exists");
+
+        add_node_to_document(
+            &mut document,
+            &descriptor,
+            "stats",
+            Some("default_pipeline"),
+        )
+        .expect("window stage is added");
+
+        let edited = document.to_string();
+        assert!(edited.contains("type = \"window\""));
+        assert!(edited.contains("kind = \"tumbling\""));
+        assert!(edited.contains("size_ms = 10000"));
+        assert!(!edited.contains("slide_ms"));
+
+        let config = toml::from_str::<Config>(&edited).expect("edited config parses");
+        let stage = config
+            .pipelines
+            .get("default_pipeline")
+            .and_then(|pipeline| pipeline.stages.get("stats"))
+            .expect("new window stage exists")
+            .clone();
+        create_processor("window", stage).expect("descriptor-created window stage can be built");
     }
 
     #[test]

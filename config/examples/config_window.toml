@@ -1,0 +1,62 @@
+# Window: per-sensor statistics every 5 seconds
+#
+# Two simulated sensors report once a second. A rule names each one, and a window stage outputs, for each sensor
+# and each 5 s window, the number of readings and their average, minimum, maximum and standard deviation.
+#
+#   cargo run -- --config config/examples/config_window.toml
+#
+# Each window is output 250 ms after it ends (the default lateness, for readings still on their way). Add a
+# [pipelines.window_demo.stages.stats.timing] block to change that (`max_lateness_ms`) or to window by event time.
+
+[inputs.sensor_a]
+type = "simulated"
+output = "readings_a"
+parameters = { interval_ms = 1000, distribution = "uniform", min_value = 20.0, max_value = 22.0 }
+
+[inputs.sensor_b]
+type = "simulated"
+output = "readings_b"
+parameters = { interval_ms = 1000, distribution = "normal", min_value = 40.0, max_value = 50.0 }
+
+[pipelines.window_demo]
+description = "Per-sensor statistics over 5 s windows"
+
+[pipelines.window_demo.stages.name_a]
+type = "rule"
+inputs = ["readings_a"]
+output = "named_a"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "set_field", field_path = "sensor", value = "a" }] }] }
+
+[pipelines.window_demo.stages.name_b]
+type = "rule"
+inputs = ["readings_b"]
+output = "named_b"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "set_field", field_path = "sensor", value = "b" }] }] }
+
+# One window per sensor (group_by), back to back every 5 s (tumbling), output when each ends (on_close).
+[pipelines.window_demo.stages.stats]
+type = "window"
+inputs = ["named_a", "named_b"]
+output = "sensor_stats"
+
+[pipelines.window_demo.stages.stats.parameters]
+kind = "tumbling"
+group_by = ["sensor"]
+aggregates = [
+  { function = "count", as = "readings" },
+  { function = "avg", field = "value", as = "avg" },
+  { function = "min", field = "value", as = "min" },
+  { function = "max", field = "value", as = "max" },
+  { function = "std", field = "value", as = "std" },
+]
+emit = "on_close"
+size_ms = 5000
+
+# Alternatives:
+#   every second, the last 10 s:       kind = "sliding", size_ms = 10000, slide_ms = 1000
+#   a moving value with every reading: kind = "sliding", size_ms = 10000, emit = "every_message"
+#   the last 5 readings:               kind = "last_n", size_n = 5, emit = "every_message"
+
+[outputs.console]
+type = "console"
+inputs = ["sensor_stats"]

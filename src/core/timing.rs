@@ -14,6 +14,13 @@ pub fn now_millis() -> u64 {
         })
 }
 
+/// Milliseconds since the epoch for a point in time (0 for times before the epoch), e.g. for
+/// comparing a message's `timing.event_time` with millisecond window bounds.
+pub fn epoch_millis(time: SystemTime) -> u64 {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64)
+}
+
 /// Configuration for timing behavior in processing stages
 #[derive(Debug, Clone)]
 pub struct TimingConfig {

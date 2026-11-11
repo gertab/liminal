@@ -130,6 +130,23 @@ pub(crate) fn update_existing_parameter(
     }
 }
 
+/// Removes a parameter, so the processor falls back to its default (or doesn't use it).
+pub(crate) fn remove_parameter(
+    document: &mut DocumentMut,
+    node_id: &str,
+    parameter_key: &str,
+) -> Result<(), String> {
+    let stage = stage_item_mut(document, node_id)?;
+    let parameters = stage
+        .get_mut("parameters")
+        .ok_or_else(|| format!("Node '{}' has no parameters table", node_id))?;
+    if parameters.get(parameter_key).is_none() {
+        return Err(format!("Parameter '{}' does not exist", parameter_key));
+    }
+    remove_nested_field(parameters, parameter_key);
+    Ok(())
+}
+
 pub(crate) fn update_json_parameter(
     document: &mut DocumentMut,
     node_id: &str,

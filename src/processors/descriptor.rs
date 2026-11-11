@@ -61,6 +61,7 @@ pub struct FieldSpec {
     pub key: String,
     pub label: String,
     pub kind: FieldKind,
+    /// With `applies_when`: required whenever the field applies.
     pub required: bool,
     pub default_value: Option<String>,
     pub options: Vec<String>,
@@ -69,6 +70,16 @@ pub struct FieldSpec {
     pub renderer: Option<String>,
     pub status: FieldStatus,
     pub status_note: Option<String>,
+    /// When the field applies, depending on other fields of the same processor: every condition
+    /// must hold. Empty: always. A field that doesn't apply isn't used, and editors can hide it.
+    pub applies_when: Vec<FieldCondition>,
+}
+
+/// A condition on another field: its value (or its default, when unset) is one of `values`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FieldCondition {
+    pub field: String,
+    pub values: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -232,6 +243,14 @@ pub fn processor_descriptors() -> Vec<ProcessorDescriptor> {
             display_name: "Fusion".to_string(),
             description: "Combines messages from multiple inputs.".to_string(),
             fields: fusion_fields(),
+        },
+        ProcessorDescriptor {
+            type_name: "window".to_string(),
+            category: ProcessorCategory::Aggregator,
+            display_name: "Window".to_string(),
+            description: "Aggregates the messages of a time span or the last N messages, per key."
+                .to_string(),
+            fields: window_fields(),
         },
         ProcessorDescriptor {
             type_name: "console".to_string(),
@@ -425,6 +444,7 @@ fn field(
         renderer: None,
         status: FieldStatus::Stable,
         status_note: None,
+        applies_when: Vec::new(),
     }
 }
 
@@ -435,6 +455,18 @@ fn field_with_schema(
 ) -> FieldSpec {
     field.schema = Some(schema);
     field.renderer = renderer.map(str::to_string);
+    field
+}
+
+/// A field that only applies when each of the other fields named holds one of the values given.
+fn applies_when(mut field: FieldSpec, conditions: &[(&'static str, &[&'static str])]) -> FieldSpec {
+    field.applies_when = conditions
+        .iter()
+        .map(|(other, values)| FieldCondition {
+            field: other.to_string(),
+            values: values.iter().map(|value| value.to_string()).collect(),
+        })
+        .collect();
     field
 }
 
@@ -499,6 +531,175 @@ fn fusion_fields() -> Vec<FieldSpec> {
             "Milliseconds to wait for other ready inputs before emitting a fused message.",
         ),
     ]
+}
+
+fn window_fields() -> Vec<FieldSpec> {
+    const TIME_WINDOWS: &[&str] = &["tumbling", "sliding"];
+
+    vec![
+        field(
+            "kind",
+            "Kind",
+            FieldKind::Enum,
+            true,
+            Some("tumbling"),
+            &["tumbling", "sliding", "last_n"],
+            "tumbling: back-to-back windows of size_ms; sliding: the last size_ms; last_n: the last size_n messages.",
+        ),
+        applies_when(
+            field(
+                "size_ms",
+                "Size (ms)",
+                FieldKind::Integer,
+                true,
+                Some("10000"),
+                &[],
+                "Window length, in event time.",
+            ),
+            &[("kind", TIME_WINDOWS)],
+        ),
+        applies_when(
+            field(
+                "slide_ms",
+                "Slide (ms)",
+                FieldKind::Integer,
+                true,
+                None,
+                &[],
+                "How often the sliding window outputs (at most size_ms).",
+            ),
+            &[("kind", &["sliding"]), ("emit", &["on_close"])],
+        ),
+        applies_when(
+            field(
+                "size_n",
+                "Size (messages)",
+                FieldKind::Integer,
+                true,
+                None,
+                &[],
+                "Number of messages in the window.",
+            ),
+            &[("kind", &["last_n"])],
+        ),
+        field_with_schema(
+            field(
+                "aggregates",
+                "Aggregates",
+                FieldKind::Array,
+                true,
+                Some("[{ function = \"count\" }]"),
+                &[],
+                "What to compute over each window: a function, the field it reads, and its output name (as).",
+            ),
+            SchemaSpec::Array {
+                item: Box::new(window_aggregate_schema()),
+            },
+            Some("object_list"),
+        ),
+        field(
+            "emit",
+            "Emit",
+            FieldKind::Enum,
+            false,
+            Some("on_close"),
+            &["on_close", "every_message"],
+            "on_close: once per window; every_message: with every message (a moving value).",
+        ),
+        field_with_schema(
+            field(
+                "group_by",
+                "Group by",
+                FieldKind::Array,
+                false,
+                Some("[]"),
+                &[],
+                "Field paths that split the stream into separate windows, e.g. sensor.",
+            ),
+            SchemaSpec::Array {
+                item: Box::new(SchemaSpec::JsonValue),
+            },
+            Some("string_array"),
+        ),
+        applies_when(
+            field(
+                "emit_empty",
+                "Emit empty windows",
+                FieldKind::Boolean,
+                false,
+                Some("false"),
+                &[],
+                "Also output windows with no messages (count 0, null for the others).",
+            ),
+            &[("kind", TIME_WINDOWS), ("emit", &["on_close"])],
+        ),
+        field(
+            "max_items",
+            "Max messages per key",
+            FieldKind::Integer,
+            false,
+            Some("100000"),
+            &[],
+            "Messages kept per key; the oldest are dropped beyond this.",
+        ),
+    ]
+}
+
+fn window_aggregate_schema() -> SchemaSpec {
+    SchemaSpec::Object {
+        fields: vec![
+            field(
+                "function",
+                "Function",
+                FieldKind::Enum,
+                true,
+                Some("avg"),
+                &[
+                    "count",
+                    "distinct_count",
+                    "sum",
+                    "avg",
+                    "min",
+                    "max",
+                    "spread",
+                    "std",
+                ],
+                "count, distinct_count, sum, avg, min, max, spread (max - min) or std.",
+            ),
+            applies_when(
+                field(
+                    "field",
+                    "Field",
+                    FieldKind::String,
+                    true,
+                    None,
+                    &[],
+                    "Field path to aggregate.",
+                ),
+                &[(
+                    "function",
+                    &[
+                        "distinct_count",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max",
+                        "spread",
+                        "std",
+                    ],
+                )],
+            ),
+            field(
+                "as",
+                "Output name",
+                FieldKind::String,
+                false,
+                None,
+                &[],
+                "Name in the output. Default: <field>_<function>, or count.",
+            ),
+        ],
+    }
 }
 
 fn rule_schema() -> SchemaSpec {
@@ -829,6 +1030,7 @@ mod tests {
                 "simulated",
                 "tcp_input",
                 "tcp_output",
+                "window",
             ]
         );
     }
@@ -975,6 +1177,70 @@ mod tests {
         assert_eq!(topics.kind, FieldKind::Array);
         assert_eq!(topics.renderer.as_deref(), Some("string_array"));
         assert!(matches!(topics.schema, Some(SchemaSpec::Array { .. })));
+    }
+
+    #[test]
+    fn window_descriptor_marks_fields_that_depend_on_kind_and_emit() {
+        let descriptors = processor_descriptors();
+        let window = descriptors
+            .iter()
+            .find(|descriptor| descriptor.type_name == "window")
+            .expect("window descriptor exists");
+        let field = |key: &str| {
+            window
+                .fields
+                .iter()
+                .find(|field| field.key == key)
+                .unwrap_or_else(|| panic!("{key} field exists"))
+        };
+        let condition = |field: &str, values: &[&str]| FieldCondition {
+            field: field.to_string(),
+            values: values.iter().map(|value| value.to_string()).collect(),
+        };
+
+        assert!(field("kind").applies_when.is_empty());
+        assert_eq!(
+            field("size_ms").applies_when,
+            vec![condition("kind", &["tumbling", "sliding"])]
+        );
+        assert_eq!(
+            field("slide_ms").applies_when,
+            vec![
+                condition("kind", &["sliding"]),
+                condition("emit", &["on_close"])
+            ]
+        );
+        assert_eq!(
+            field("size_n").applies_when,
+            vec![condition("kind", &["last_n"])]
+        );
+        assert!(field("size_n").required);
+
+        let aggregates = field("aggregates");
+        assert_eq!(aggregates.renderer.as_deref(), Some("object_list"));
+        let Some(SchemaSpec::Array { item }) = &aggregates.schema else {
+            panic!("aggregates is an array");
+        };
+        let SchemaSpec::Object { fields } = item.as_ref() else {
+            panic!("aggregates are objects");
+        };
+        let keys: Vec<&str> = fields.iter().map(|field| field.key.as_str()).collect();
+        assert_eq!(keys, vec!["function", "field", "as"]);
+        // An aggregate's field applies to every function but count, and is then required.
+        let aggregate_field = &fields[1];
+        assert!(aggregate_field.required);
+        assert_eq!(aggregate_field.applies_when.len(), 1);
+        assert_eq!(aggregate_field.applies_when[0].field, "function");
+        assert!(
+            !aggregate_field.applies_when[0]
+                .values
+                .contains(&"count".to_string())
+        );
+        assert!(
+            aggregate_field.applies_when[0]
+                .values
+                .contains(&"sum".to_string())
+        );
     }
 
     #[test]

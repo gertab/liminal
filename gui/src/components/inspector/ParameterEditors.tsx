@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { FieldStatusBadge } from "./InspectorPrimitives";
+import { fieldApplies, objectValues } from "./fieldConditions";
 import {
   FieldKind,
   FieldSpec,
@@ -33,16 +34,23 @@ export function ParameterRow({
   nodeId,
   parameter,
   fieldSpec,
+  applies = true,
+  inapplicableReason,
   saveState,
   onUpdateParameter,
   onUpdateParameterJson,
+  onRemoveParameter,
 }: {
   nodeId: string;
   parameter: GraphParameter;
   fieldSpec?: FieldSpec;
+  /** Whether the field applies, given the node's other parameters (`FieldSpec.applies_when`). */
+  applies?: boolean;
+  inapplicableReason?: string;
   saveState: SaveState;
   onUpdateParameter: (nodeId: string, parameterKey: string, value: string) => Promise<void>;
   onUpdateParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
+  onRemoveParameter?: (nodeId: string, parameterKey: string) => Promise<void>;
 }) {
   const [draftValue, setDraftValue] = useState(parameter.value);
   const isDirty = draftValue !== parameter.value;
@@ -52,27 +60,57 @@ export function ParameterRow({
   const options = fieldSpec ? selectOptionsForValue(fieldSpec, draftValue) : [];
   const status = fieldSpec?.status ?? "stable";
   const statusNote = fieldSpec?.status_note ?? null;
+  // A parameter can go if it's optional, doesn't apply, or isn't one the processor knows.
+  const canRemove = onRemoveParameter !== undefined && (!applies || !fieldSpec?.required);
 
   useEffect(() => {
     setDraftValue(parameter.value);
   }, [parameter.value]);
 
+  const header = (
+    <>
+      <div className="parameter-label">
+        <strong title={parameter.key}>{label}</strong>
+        <span>{valueKind}</span>
+        {canRemove && (
+          <button
+            className="icon-button danger parameter-remove"
+            disabled={saveState === "saving"}
+            onClick={() => onRemoveParameter(nodeId, parameter.key)}
+            aria-label={`Remove ${parameter.key}`}
+            title={fieldSpec ? "Remove (the default applies)" : "Remove (not a known parameter)"}
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+      <FieldStatusBadge status={status} note={statusNote} />
+      {!applies && <p className="parameter-note">Not used: {inapplicableReason}.</p>}
+      {!fieldSpec && <p className="parameter-note">Not a parameter of this processor.</p>}
+      {fieldSpec?.help && <p className="parameter-help">{fieldSpec.help}</p>}
+    </>
+  );
+
   if (!parameter.editable) {
     return (
       <div
         className={
-          fieldSpec?.renderer === "rule_builder"
+          fieldSpec?.renderer === "rule_builder" || fieldSpec?.renderer === "object_list"
             ? "parameter-row read-only rule-parameter-row"
             : "parameter-row read-only"
         }
       >
-        <div className="parameter-label">
-          <strong title={parameter.key}>{label}</strong>
-          <span>{valueKind}</span>
-        </div>
-        <FieldStatusBadge status={status} note={statusNote} />
-        {fieldSpec?.help && <p className="parameter-help">{fieldSpec.help}</p>}
-        {fieldSpec?.renderer === "rule_builder" && fieldSpec.schema ? (
+        {header}
+        {fieldSpec?.renderer === "object_list" && fieldSpec.schema ? (
+          <ObjectListParameterEditor
+            nodeId={nodeId}
+            parameterKey={parameter.key}
+            value={parameter.raw_value}
+            schema={fieldSpec.schema}
+            saveState={saveState}
+            onUpdateParameterJson={onUpdateParameterJson}
+          />
+        ) : fieldSpec?.renderer === "rule_builder" && fieldSpec.schema ? (
           <RuleParameterEditor
             nodeId={nodeId}
             parameterKey={parameter.key}
@@ -100,12 +138,7 @@ export function ParameterRow({
 
   return (
     <div className={isDirty ? "parameter-row dirty" : "parameter-row"}>
-      <div className="parameter-label">
-        <strong title={parameter.key}>{label}</strong>
-        <span>{valueKind}</span>
-      </div>
-      <FieldStatusBadge status={status} note={statusNote} />
-      {fieldSpec?.help && <p className="parameter-help">{fieldSpec.help}</p>}
+      {header}
       {fieldKind === "enum" ? (
         <select value={draftValue} onChange={(event) => setDraftValue(event.target.value)}>
           {options.map((option) => (
@@ -186,6 +219,27 @@ export function MissingParameterRow({
           nodeId={nodeId}
           parameterKey={field.key}
           value={defaultValueForField(field)}
+          saveState={saveState}
+          onUpdateParameterJson={onUpdateParameterJson}
+        />
+      </div>
+    );
+  }
+
+  if (field.renderer === "object_list" && field.schema) {
+    return (
+      <div className="parameter-row read-only missing-parameter rule-parameter-row">
+        <div className="parameter-label">
+          <strong title={field.key}>{field.label}</strong>
+          <span>{field.kind}</span>
+        </div>
+        <FieldStatusBadge status={field.status} note={field.status_note} />
+        {field.help && <p className="parameter-help">{field.help}</p>}
+        <ObjectListParameterEditor
+          nodeId={nodeId}
+          parameterKey={field.key}
+          value={[]}
+          schema={field.schema}
           saveState={saveState}
           onUpdateParameterJson={onUpdateParameterJson}
         />
@@ -296,6 +350,241 @@ function StringArrayParameterEditor({
       </div>
     </div>
   );
+}
+
+type JsonObject = { [key: string]: JsonValue };
+
+/**
+ * Edits an array of flat objects (`renderer = "object_list"`), described by the field's schema: an
+ * `array` of `object` with scalar fields. One row per item, one input per field that applies to the
+ * item (`applies_when` on the item's other fields, e.g. no field for a count).
+ */
+function ObjectListParameterEditor({
+  nodeId,
+  parameterKey,
+  value,
+  schema,
+  saveState,
+  onUpdateParameterJson,
+}: {
+  nodeId: string;
+  parameterKey: string;
+  value: JsonValue;
+  schema: SchemaSpec;
+  saveState: SaveState;
+  onUpdateParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
+}) {
+  const itemFields = useMemo(
+    () => (schema.kind === "array" && schema.item.kind === "object" ? schema.item.fields : []),
+    [schema],
+  );
+  const savedItems = useMemo(() => (Array.isArray(value) ? value.filter(isJsonObject) : []), [value]);
+  const [draftItems, setDraftItems] = useState<JsonObject[]>(savedItems);
+  const isDirty = JSON.stringify(draftItems) !== JSON.stringify(savedItems);
+  const issues = useMemo(() => validateObjectList(draftItems, itemFields), [draftItems, itemFields]);
+
+  useEffect(() => {
+    setDraftItems(savedItems);
+  }, [savedItems]);
+
+  const updateItem = (index: number, nextItem: JsonObject) =>
+    setDraftItems((items) =>
+      items.map((item, itemIndex) => (itemIndex === index ? withoutInapplicable(nextItem, itemFields) : item)),
+    );
+
+  return (
+    <div className="object-list-editor">
+      {draftItems.length === 0 ? (
+        <p className="empty-state">No items configured.</p>
+      ) : (
+        draftItems.map((item, index) => (
+          <div className="object-list-row" key={index}>
+            <div className="object-list-fields">
+              {applicableFields(item, itemFields).map((field) => (
+                <label className="object-list-field" key={field.key} title={field.help}>
+                  <span>
+                    {field.label}
+                    {field.required && " *"}
+                  </span>
+                  <ObjectFieldInput
+                    field={field}
+                    value={item[field.key]}
+                    ariaLabel={`${parameterKey} item ${index + 1} ${field.key}`}
+                    onChange={(nextValue) => updateItem(index, withObjectField(item, field.key, nextValue))}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="object-list-row-actions">
+              <button
+                className="icon-button"
+                disabled={index === 0}
+                onClick={() => setDraftItems((items) => moveArrayItem(items, index, -1))}
+                aria-label={`Move ${parameterKey} item ${index + 1} up`}
+                title="Move up"
+              >
+                <ArrowUp size={13} />
+              </button>
+              <button
+                className="icon-button"
+                disabled={index === draftItems.length - 1}
+                onClick={() => setDraftItems((items) => moveArrayItem(items, index, 1))}
+                aria-label={`Move ${parameterKey} item ${index + 1} down`}
+                title="Move down"
+              >
+                <ArrowDown size={13} />
+              </button>
+              <button
+                className="icon-button danger"
+                onClick={() => setDraftItems((items) => items.filter((_, itemIndex) => itemIndex !== index))}
+                aria-label={`Remove ${parameterKey} item ${index + 1}`}
+                title="Remove"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+      {issues.length > 0 && (
+        <ul className="object-list-issues">
+          {issues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      )}
+      <div className="string-array-actions">
+        <button
+          className="compact-add-button"
+          onClick={() => setDraftItems((items) => [...items, defaultObjectItem(itemFields)])}
+        >
+          Add
+        </button>
+        <button disabled={!isDirty || saveState === "saving"} onClick={() => setDraftItems(savedItems)}>
+          Revert
+        </button>
+        <button
+          disabled={!isDirty || saveState === "saving" || issues.length > 0}
+          onClick={() => onUpdateParameterJson(nodeId, parameterKey, draftItems)}
+        >
+          {saveState === "saving" ? "Saving" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One scalar field of an object-list item. Clearing an optional field leaves it out of the item. */
+function ObjectFieldInput({
+  field,
+  value,
+  ariaLabel,
+  onChange,
+}: {
+  field: FieldSpec;
+  value: JsonValue | undefined;
+  ariaLabel: string;
+  onChange: (value: JsonValue | undefined) => void;
+}) {
+  if (field.kind === "enum") {
+    const selected = typeof value === "string" ? value : "";
+    return (
+      <select
+        aria-label={ariaLabel}
+        value={selected}
+        onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)}
+      >
+        {(!field.required || selected === "") && (
+          <option value="">{field.required ? "Choose…" : "(none)"}</option>
+        )}
+        {field.options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (field.kind === "boolean") {
+    return (
+      <input
+        type="checkbox"
+        aria-label={ariaLabel}
+        checked={value === true}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    );
+  }
+
+  const isNumber = field.kind === "integer" || field.kind === "number";
+  return (
+    <input
+      aria-label={ariaLabel}
+      type={isNumber ? "number" : "text"}
+      value={value === undefined || value === null ? "" : String(value)}
+      placeholder={field.default_value ?? ""}
+      onChange={(event) => {
+        const text = event.target.value;
+        if (text.trim() === "") {
+          onChange(undefined);
+        } else {
+          onChange(isNumber ? Number(text) : text);
+        }
+      }}
+    />
+  );
+}
+
+/** The item with `key` set, keeping its place, or removed when `value` is undefined. */
+function withObjectField(item: JsonObject, key: string, value: JsonValue | undefined): JsonObject {
+  if (value !== undefined) {
+    return { ...item, [key]: value };
+  }
+  const next = { ...item };
+  delete next[key];
+  return next;
+}
+
+/** The fields that apply to an item, given its other fields (`applies_when`). */
+function applicableFields(item: JsonObject, fields: FieldSpec[]): FieldSpec[] {
+  const values = objectValues(item, fields);
+  return fields.filter((field) => fieldApplies(field, values));
+}
+
+/** The item without the fields that don't apply to it (e.g. a field left over after switching to count). */
+function withoutInapplicable(item: JsonObject, fields: FieldSpec[]): JsonObject {
+  const applicable = applicableFields(item, fields);
+  return fields
+    .filter((field) => !applicable.includes(field))
+    .reduce((current, field) => withObjectField(current, field.key, undefined), item);
+}
+
+/** A new item: each required field that applies, at its default. */
+function defaultObjectItem(fields: FieldSpec[]): JsonObject {
+  const item: JsonObject = {};
+  for (const field of fields) {
+    if (field.required) {
+      item[field.key] = defaultValueForField(field);
+    }
+  }
+  return withoutInapplicable(item, fields);
+}
+
+function validateObjectList(items: JsonObject[], fields: FieldSpec[]): string[] {
+  const issues: string[] = [];
+  items.forEach((item, index) => {
+    for (const field of applicableFields(item, fields)) {
+      const value = item[field.key];
+      if (field.required && isEmptyRequiredValue(value)) {
+        issues.push(`Item ${index + 1}: ${field.label} is required.`);
+      }
+      if (field.kind === "integer" && typeof value === "number" && !Number.isInteger(value)) {
+        issues.push(`Item ${index + 1}: ${field.label} must be a whole number.`);
+      }
+    }
+  });
+  return issues;
 }
 
 function RuleParameterEditor({
@@ -585,6 +874,7 @@ function RuleActionCard({
       renderer: null,
       status: "stable" as FieldStatus,
       status_note: null,
+      applies_when: [],
     }));
 
   return (

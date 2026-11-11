@@ -105,6 +105,14 @@ export type FieldSpec = {
   renderer: string | null;
   status: FieldStatus;
   status_note: string | null;
+  /** When the field applies: every condition holds (empty: always). `required` then means "required when it applies". */
+  applies_when: FieldCondition[];
+};
+
+/** A condition on another field of the same processor: its value (or default) is one of `values`. */
+export type FieldCondition = {
+  field: string;
+  values: string[];
 };
 
 export type ProcessorDescriptor = {

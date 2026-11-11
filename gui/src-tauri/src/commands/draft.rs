@@ -31,6 +31,17 @@ pub(crate) fn update_node_parameter_json_draft(
 }
 
 #[tauri::command]
+pub(crate) fn remove_node_parameter_draft(
+    content: String,
+    node_id: String,
+    parameter_key: String,
+) -> Result<DraftEditResult, String> {
+    let mut document = document_from_content(&content)?;
+    remove_parameter(&mut document, &node_id, &parameter_key)?;
+    draft_result_from_document(document)
+}
+
+#[tauri::command]
 pub(crate) fn update_node_field_draft(
     content: String,
     node_id: String,
