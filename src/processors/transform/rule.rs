@@ -2,7 +2,7 @@ use crate::config::{ProcessorConfig, StageConfig, defaulted_param, required_para
 use crate::core::input_poll::{DEFAULT_MAX_DRAIN_PER_INPUT, drain_bounded_each, idle_sleep};
 use crate::core::timing_mixin::{TimingMixin, WithTimingMixin};
 use crate::core::{context::ProcessingContext, message::Message};
-use crate::processors::common::condition_utils::{ConditionEvaluator, ConditionOperation};
+use crate::processors::common::expression::{Expression, Variables};
 use crate::processors::common::field_utils::FieldUtils;
 use crate::processors::processor::Processor;
 
@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value};
 use std::collections::HashMap;
 use tracing::{debug, error, warn};
+
+pub use crate::processors::common::condition_utils::Condition;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuleConfig {
@@ -64,24 +66,9 @@ impl ProcessorConfig for RuleConfig {
         }
 
         for (i, rule) in self.rules.iter().enumerate() {
-            if rule.condition.operation.is_empty() {
-                return Err(anyhow!("Rule {} has empty operation", i));
-            }
-
-            // Validate operation is supported
-            let operation =
-                ConditionOperation::from_str(&rule.condition.operation).ok_or_else(|| {
-                    anyhow!(
-                        "Rule {} has unsupported operation: '{}'",
-                        i,
-                        rule.condition.operation
-                    )
-                })?;
-
-            if !operation.is_unconditional() {
-                FieldUtils::validate_field_path(&rule.condition.field_path)
-                    .map_err(|error| anyhow!("Rule {} has invalid field_path: {}", i, error))?;
-            }
+            rule.condition
+                .validate()
+                .map_err(|error| anyhow!("Rule {} has {}", i, error))?;
 
             if rule.actions.is_empty() {
                 return Err(anyhow!("Rule {} has no actions", i));
@@ -163,7 +150,8 @@ impl RuleConfig {
                 if expression.is_empty() {
                     return Err(anyhow!("{}: ComputeField has empty expression", context));
                 }
-                // Could add expression syntax validation here using evalexpr
+                Expression::parse(expression)
+                    .map_err(|error| anyhow!("{}: ComputeField has {}", context, error))?;
             }
             Action::KeepOnlyFields { field_paths } => {
                 // Empty field_paths is valid - it means "keep no fields" (clear everything)
@@ -191,15 +179,6 @@ pub struct Rule {
     pub actions: Vec<Action>,
     #[serde(default)]
     pub else_actions: Vec<Action>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Condition {
-    #[serde(default)]
-    pub field_path: String,
-    pub operation: String,
-    #[serde(default)]
-    pub value: Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -258,6 +237,8 @@ pub struct RuleProcessor {
     name: String,
     config: RuleConfig,
     timing: TimingMixin,
+    /// The `compute_field` expressions, parsed once, by their source.
+    expressions: HashMap<String, Expression>,
 }
 
 impl RuleProcessor {
@@ -267,37 +248,14 @@ impl RuleProcessor {
 
         // Create timing mixin from processor configuration
         let timing = TimingMixin::new(processor_config.timing.as_ref());
+        let expressions = parse_expressions(&processor_config.rules)?;
 
         Ok(Box::new(Self {
             name: name.to_string(),
             config: processor_config,
             timing,
+            expressions,
         }))
-    }
-
-    fn evaluate_condition(&self, payload: &Value, condition: &Condition) -> bool {
-        let operation = match ConditionOperation::from_str(&condition.operation) {
-            Some(op) => op,
-            None => {
-                warn!("Unknown condition operation: {}", condition.operation);
-                return false;
-            }
-        };
-
-        if operation.is_unconditional() {
-            return ConditionEvaluator::evaluate_condition(&Value::Null, &operation, &Value::Null);
-        }
-
-        let field_value = match FieldUtils::extract_field_value(payload, &condition.field_path) {
-            Some(value) => value,
-            None => {
-                debug!("Field '{}' not found in payload", condition.field_path);
-                return false;
-            }
-        };
-
-        // Use ConditionEvaluator to evaluate the condition
-        ConditionEvaluator::evaluate_condition(field_value, &operation, &condition.value)
     }
 
     fn execute_action(&self, payload: &mut Value, action: &Action) -> Result<()> {
@@ -428,107 +386,16 @@ impl RuleProcessor {
         Ok(())
     }
 
-    fn build_expression_context(&self, payload: &Value) -> evalexpr::HashMapContext {
-        use evalexpr::HashMapContext;
-
-        let mut context = HashMapContext::new();
-        self.add_payload_to_context(payload, "", &mut context);
-        context
-    }
-
-    fn add_payload_to_context(
-        &self,
-        value: &Value,
-        prefix: &str,
-        context: &mut evalexpr::HashMapContext,
-    ) {
-        use evalexpr::{ContextWithMutableVariables, Value as EvalValue};
-
-        match value {
-            Value::Number(num) => {
-                if let Some(float_val) = num.as_f64() {
-                    let _ = context.set_value(prefix.to_string(), EvalValue::Float(float_val));
-                    debug!("Added numeric field '{}' = {}", prefix, float_val);
-                }
-            }
-            Value::Bool(b) => {
-                let _ = context.set_value(prefix.to_string(), EvalValue::Boolean(*b));
-                debug!("Added boolean field '{}' = {}", prefix, b);
-            }
-            Value::String(s) => {
-                let _ = context.set_value(prefix.to_string(), EvalValue::String(s.clone()));
-                debug!("Added string field '{}' = '{}'", prefix, s);
-            }
-            Value::Object(map) => {
-                for (key, val) in map {
-                    let field_path = if prefix.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{}.{}", prefix, key)
-                    };
-                    self.add_payload_to_context(val, &field_path, context);
-                }
-            }
-            Value::Array(arr) => {
-                for (index, val) in arr.iter().enumerate() {
-                    let field_path = if prefix.is_empty() {
-                        format!("[{}]", index)
-                    } else {
-                        format!("{}[{}]", prefix, index)
-                    };
-                    self.add_payload_to_context(val, &field_path, context);
-                }
-            }
-            Value::Null => {
-                // Skip null values
-            }
-        }
-    }
-
     fn evaluate_expression(&self, payload: &Value, expression: &str) -> Result<f64> {
-        debug!("Evaluating expression: '{}'", expression);
-
-        // Build context with all payload fields
-        let context = self.build_expression_context(payload);
-
-        // Transform common math functions to their namespaced versions for compatibility
-        let mut processed_expression = expression.to_string();
-
-        let math_functions = [
-            ("sqrt", "math::sqrt"),
-            ("sin", "math::sin"),
-            ("cos", "math::cos"),
-            ("tan", "math::tan"),
-            ("log", "math::log10"),
-            ("ln", "math::ln"),
-            ("abs", "math::abs"),
-            ("floor", "math::floor"),
-            ("ceil", "math::ceil"),
-            ("exp", "math::exp"),
-        ];
-
-        for (func, namespaced_func) in &math_functions {
-            let pattern = format!(r"\b{}\b", regex::escape(func));
-            if let Ok(regex) = regex::Regex::new(&pattern) {
-                processed_expression = regex
-                    .replace_all(&processed_expression, *namespaced_func)
-                    .to_string();
-            }
-        }
-
-        debug!("Processed expression: '{}'", processed_expression);
-
-        // Evaluate using context
-        match evalexpr::eval_float_with_context(&processed_expression, &context) {
-            Ok(result) => {
-                debug!("Expression '{}' evaluated to: {}", expression, result);
-                Ok(result)
-            }
-            Err(e) => {
-                error!("Failed to evaluate expression '{}': {}", expression, e);
-                Err(anyhow!("Expression evaluation failed: {}", e))
-            }
-        }
+        let expression = self
+            .expressions
+            .get(expression)
+            .ok_or_else(|| anyhow!("expression '{}' was not parsed", expression))?;
+        let mut variables = Variables::new();
+        variables.add_payload("", payload);
+        expression.eval_number(&variables).inspect_err(|error| {
+            error!("Failed to evaluate expression: {}", error);
+        })
     }
 
     fn process_message(&self, mut message: Message) -> Result<Option<Message>> {
@@ -538,7 +405,7 @@ impl RuleProcessor {
             let matched;
             let active_actions;
 
-            if self.evaluate_condition(&message.payload, &rule.condition) {
+            if rule.condition.matches(&message.payload) {
                 debug!("Rule condition matched for message from {}", message.source);
                 matched = true;
                 active_actions = &rule.actions;
@@ -748,6 +615,22 @@ impl Processor for RuleProcessor {
     }
 }
 
+/// Parses every `compute_field` expression of the rules, keyed by its source.
+fn parse_expressions(rules: &[Rule]) -> Result<HashMap<String, Expression>> {
+    let mut expressions = HashMap::new();
+    let actions = rules
+        .iter()
+        .flat_map(|rule| rule.actions.iter().chain(&rule.else_actions));
+    for action in actions {
+        if let Action::ComputeField { expression, .. } = action
+            && !expressions.contains_key(expression)
+        {
+            expressions.insert(expression.clone(), Expression::parse(expression)?);
+        }
+    }
+    Ok(expressions)
+}
+
 impl WithTimingMixin for RuleProcessor {
     fn timing_mixin(&self) -> &TimingMixin {
         &self.timing
@@ -792,6 +675,7 @@ mod tests {
     fn processor_with(rules: Vec<Rule>, error_strategy: ErrorStrategy) -> RuleProcessor {
         RuleProcessor {
             name: "rule_test".to_string(),
+            expressions: parse_expressions(&rules).expect("test expressions parse"),
             config: RuleConfig {
                 rules,
                 error_strategy,
@@ -1098,15 +982,74 @@ mod tests {
 
     #[test]
     fn expression_context_exposes_array_paths() {
-        let processor = processor_with(vec![], ErrorStrategy::Abort);
+        let processor = processor_with(
+            vec![Rule {
+                condition: condition("always"),
+                actions: vec![Action::ComputeField {
+                    field_path: "next".to_string(),
+                    expression: "readings[0].value + 1".to_string(),
+                }],
+                else_actions: vec![],
+            }],
+            ErrorStrategy::Abort,
+        );
 
-        let result = processor
-            .evaluate_expression(
-                &json!({ "readings": [{ "value": 4 }] }),
-                "readings[0].value + 1",
-            )
-            .expect("array path is available to expressions");
+        let output = processor
+            .process_message(Message::new(
+                "source",
+                "raw",
+                json!({ "readings": [{ "value": 4 }] }),
+            ))
+            .expect("message processes")
+            .expect("message is forwarded");
 
-        assert_eq!(result, 5.0);
+        assert_eq!(output.payload["next"], json!(5.0));
+    }
+
+    #[test]
+    fn compute_field_functions_work_bare_and_namespaced() {
+        let processor = processor_with(
+            vec![Rule {
+                condition: condition("always"),
+                actions: vec![Action::ComputeField {
+                    field_path: "result".to_string(),
+                    expression: "floor(x) + math::sqrt(x) + log * 1.0".to_string(),
+                }],
+                else_actions: vec![],
+            }],
+            ErrorStrategy::Abort,
+        );
+
+        let output = processor
+            .process_message(Message::new(
+                "source",
+                "raw",
+                json!({ "x": 16.5, "log": 2.0 }),
+            ))
+            .expect("message processes")
+            .expect("message is forwarded");
+
+        let expected = 16.0 + 16.5f64.sqrt() + 2.0;
+        assert_eq!(output.payload["result"], json!(expected));
+    }
+
+    #[test]
+    fn rule_validation_rejects_expression_syntax_errors() {
+        let config = RuleConfig {
+            rules: vec![Rule {
+                condition: condition("always"),
+                actions: vec![Action::ComputeField {
+                    field_path: "broken".to_string(),
+                    expression: "(value + 1.0".to_string(),
+                }],
+                else_actions: vec![],
+            }],
+            error_strategy: ErrorStrategy::Continue,
+            timing: None,
+        };
+
+        let error = config.validate().expect_err("syntax error is rejected");
+
+        assert!(error.to_string().contains("invalid expression"), "{error}");
     }
 }
