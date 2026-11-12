@@ -1,7 +1,7 @@
 # Scenario: every pick is followed by a place within 60 s
 #
-# A pick starts a timer for that MM, and its next place stops it. If 60 s (15 s here) pass without a place, the part may have
-# been dropped or the MM is stuck: an alert, once.
+# A pick starts a timer for that MM, and its next place stops it. If 60 s (15 s here) pass without a place, the part
+# may have been dropped or the MM is stuck: an alert, once.
 #
 # A reduce per MM remembers whether it holds a part and since when (the simulator's ts). It needs a message to notice
 # that time has passed, so it also reads the MM's own telemetry: its sensors report every 0.5 s, and its positions
@@ -10,31 +10,23 @@
 #
 # Demo time scale: 15 s instead of 60 s, so the scene is short (replace 15000.0 by 60000.0 in the expressions).
 #
+# Events: the simulator's MQTT topics factory/mm/<mm> (everything about each MM), with the wildcard factory/mm/+.
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or lost_part)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_pick_place.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.mms]
+type = "mqtt_sub"
+output = "mm_events"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/mm/+"] }
 
-[inputs.shopfloor.timing]
+[inputs.mms.timing]
 event_time_field = "ts"
 
 [pipelines.pick_place]
 description = "A pick not followed by a place within 15 s"
-
-# The MMs' events: actions, positions and their sensors' readings.
-[pipelines.pick_place.stages.mm_events]
-type = "rule"
-inputs = ["shopfloor_events"]
-output = "mm_events"
-
-[[pipelines.pick_place.stages.mm_events.parameters.rules]]
-condition = { field_path = "entity", operation = "startswith", value = "mm" }
-actions = [{ type = "pass_through" }]
-else_actions = [{ type = "drop_message" }]
 
 # Per MM: holding a part since when, and overdue after 15 s. `alert` is true on the first overdue message only.
 [pipelines.pick_place.stages.holding]

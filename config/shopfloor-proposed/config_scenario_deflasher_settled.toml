@@ -13,17 +13,29 @@
 #
 # Demo time scale: a 10 s window instead of 2 min (size_ms = 120000 for real time, and readings < 100).
 #
+# Events: the simulator's MQTT topics factory/sensors/temperature and factory/actions, each on its own input.
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
 #                   (or deflasher_heat_spike)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_deflasher_settled.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.temperatures]
+type = "mqtt_sub"
+output = "temperatures"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/temperature"] }
 
-[inputs.shopfloor.timing]
+[inputs.temperatures.timing]
+event_time_field = "ts"
+
+[inputs.actions]
+type = "mqtt_sub"
+output = "actions"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/actions"] }
+
+[inputs.actions.timing]
 event_time_field = "ts"
 
 [pipelines.deflasher]
@@ -32,12 +44,8 @@ description = "Deflasher readiness, and places made too early"
 # The deflasher's temperature readings.
 [pipelines.deflasher.stages.temperature]
 type = "rule"
-inputs = ["shopfloor_events"]
+inputs = ["temperatures"]
 output = "deflasher_temperature"
-
-[[pipelines.deflasher.stages.temperature.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
-actions = [{ type = "drop_message" }]
 
 [[pipelines.deflasher.stages.temperature.parameters.rules]]
 condition = { field_path = "sensor", operation = "not_equals", value = "deflasher.temperature" }
@@ -78,12 +86,8 @@ actions = [{ type = "set_field", field_path = "settled", value = false }]
 # Places at the deflasher.
 [pipelines.deflasher.stages.places]
 type = "rule"
-inputs = ["shopfloor_events"]
+inputs = ["actions"]
 output = "deflasher_places"
-
-[[pipelines.deflasher.stages.places.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "action" }
-actions = [{ type = "drop_message" }]
 
 [[pipelines.deflasher.stages.places.parameters.rules]]
 condition = { field_path = "action", operation = "not_equals", value = "place" }

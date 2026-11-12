@@ -1,0 +1,48 @@
+# Shopfloor -> Liminal over TCP: MM 1 inside a no-go zone
+#
+# Alerts when MM 1 is inside the rectangle from (0, 0) to (2, 2) on scenarios/sample-floor.toml of the separate
+# shopfloor-sim project (the bottom-left corner of the floor). It needs one rule stage: keep MM 1's positions, test
+# the rectangle, alert.
+#
+#   cargo run --bin shopfloor -- run scenarios/sample-floor.toml   (in shopfloor-sim)
+#   cargo run -- --config config/examples/config_shopfloor_no_go_zone_tcp.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[pipelines.no_go_zone]
+description = "MM 1 inside the no-go zone (0, 0) to (2, 2)"
+
+[pipelines.no_go_zone.stages.mm1_in_zone]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "no_go_alerts"
+
+# Only MM 1's position reports.
+[[pipelines.no_go_zone.stages.mm1_in_zone.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "position" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.no_go_zone.stages.mm1_in_zone.parameters.rules]]
+condition = { field_path = "entity", operation = "not_equals", value = "mm1" }
+actions = [{ type = "drop_message" }]
+
+# Inside the rectangle? A condition can test only one field, so the four bounds are combined into a number first.
+[[pipelines.no_go_zone.stages.mm1_in_zone.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "compute_field", field_path = "inside", expression = "if(x >= 0.0 && x <= 2.0 && y >= 0.0 && y <= 2.0, 1.0, 0.0)" }]
+
+[[pipelines.no_go_zone.stages.mm1_in_zone.parameters.rules]]
+condition = { field_path = "inside", operation = ">", value = 0.5 }
+actions = [
+    { type = "keep_only_fields", field_paths = ["ts", "x", "y"] },
+    { type = "set_field", field_path = "alert", value = "MM 1 in the no-go zone" },
+]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.no_go_log]
+type = "console"
+inputs = ["no_go_alerts"]

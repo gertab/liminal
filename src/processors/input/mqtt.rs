@@ -169,7 +169,7 @@ impl Processor for MqttInputProcessor {
                     if let Err(e) = output_info.channel.publish(message).await {
                         tracing::warn!("Downstream publish failed: {:?}", e);
                     } else {
-                        tracing::info!("Received MQTT message from topic: '{}'", topic); // Might downcast to debug later
+                        tracing::debug!("Received MQTT message from topic: '{}'", topic);
                     }
                 }
             }

@@ -11,34 +11,23 @@
 #
 # Demo time scale: a 20 s baseline. For real monitoring, a longer one (e.g. size_ms = 3600000, an hour).
 #
+# Events: the simulator's MQTT topic factory/sensors/vibration (the MMs' vibration readings).
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or vibration_anomaly)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_adaptive_threshold.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.vibration]
+type = "mqtt_sub"
+output = "vibration"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/vibration"] }
 
-[inputs.shopfloor.timing]
+[inputs.vibration.timing]
 event_time_field = "ts"
 
 [pipelines.adaptive_threshold]
 description = "Each vibration sensor against its own recent readings"
-
-# Vibration readings only.
-[pipelines.adaptive_threshold.stages.vibration]
-type = "rule"
-inputs = ["shopfloor_events"]
-output = "vibration"
-
-[[pipelines.adaptive_threshold.stages.vibration.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
-actions = [{ type = "drop_message" }]
-
-[[pipelines.adaptive_threshold.stages.vibration.parameters.rules]]
-condition = { field_path = "sensor_kind", operation = "not_equals", value = "vibration" }
-actions = [{ type = "drop_message" }]
 
 # The last 20 s of each sensor, with every reading.
 [pipelines.adaptive_threshold.stages.baseline]

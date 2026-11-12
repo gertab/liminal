@@ -6,21 +6,24 @@
 #   - out_of_order: an event stamped earlier than the one before it;
 #   - restarted: the numbers start again (the simulator was restarted), which isn't a loss.
 #
-# A live run over TCP loses nothing, so the console stays quiet. Events are lost when a burst overflows a channel
-# (ISSUES: broadcast channels drop the oldest messages for a slow consumer). To see it, replay a recording into this
-# config with the input's capacity set to e.g. 16, and give the stages after it a large one (e.g. 8192): the same
-# burst would otherwise overflow them too, and lose some of the reports.
+# A live run through a local broker normally loses nothing, so the console stays quiet. Events are lost when a burst
+# overflows a channel (ISSUES: broadcast channels drop the oldest messages for a slow consumer), or by MQTT itself at
+# QoS 0 when the broker or the client falls behind. To see it, give the input a small capacity (e.g. 16) and the stages
+# after it a large one (e.g. 8192), and send a recording as one burst.
 #
+# Events: the simulator's MQTT topic factory/all (every event).
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (any scene)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_lost_events.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.all]
+type = "mqtt_sub"
+output = "all_events"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/all"] }
 
-[inputs.shopfloor.timing]
+[inputs.all.timing]
 event_time_field = "ts"
 
 [pipelines.lost_events]
@@ -29,7 +32,7 @@ description = "Gaps and disorder in the event numbers"
 # No group_by: prev is the previous event of the whole stream (the event itself the first time).
 [pipelines.lost_events.stages.sequence]
 type = "reduce"
-inputs = ["shopfloor_events"]
+inputs = ["all_events"]
 output = "sequence_checks"
 
 [pipelines.lost_events.stages.sequence.parameters]

@@ -7,30 +7,23 @@
 # Demo scale: a service every 10 m instead of every 1 km (replace 10.0 by 1000.0 in the expressions). In the
 # 2-minute shift scene, mm1 drives about 51 m and mm2 about 22 m.
 #
+# Events: the simulator's MQTT topic factory/positions (the MMs' positions).
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or production)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_odometer.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.positions]
+type = "mqtt_sub"
+output = "positions"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/positions"] }
 
-[inputs.shopfloor.timing]
+[inputs.positions.timing]
 event_time_field = "ts"
 
 [pipelines.odometer]
 description = "Distance driven per MM, and services due"
-
-# Positions only: the distance is measured between consecutive positions of an MM.
-[pipelines.odometer.stages.positions]
-type = "rule"
-inputs = ["shopfloor_events"]
-output = "positions"
-
-[[pipelines.odometer.stages.positions.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "position" }
-actions = [{ type = "drop_message" }]
 
 # prev is the MM's previous position (the position itself the first time, so it adds 0).
 [pipelines.odometer.stages.distance]
@@ -45,6 +38,7 @@ update = [
   { field = "distance_m", expression = "state.distance_m + math::hypot(x - prev.x, y - prev.y)" },
   { field = "service_due", expression = "floor((state.distance_m + math::hypot(x - prev.x, y - prev.y)) / 10.0) > floor(state.distance_m / 10.0)" },
 ]
+# service_due is true when the distance crosses a multiple of 10m
 
 [pipelines.odometer.stages.services]
 type = "rule"

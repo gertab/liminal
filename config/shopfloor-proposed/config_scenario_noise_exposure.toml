@@ -15,34 +15,29 @@
 # Demo time scale: the shift is 2 minutes (120 s) instead of 8 hours, and a report comes every 10 s (40 min of a real
 # shift). For a real shift, set size_ms = 1800000 (30 min) and replace 120.0 by 28800.0 in the expressions.
 #
+# Events: the simulator's MQTT topic factory/sensors/noise (noise readings only).
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or noisy_period)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_noise_exposure.toml   (start it first)
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.noise]
+type = "mqtt_sub"
+output = "noise_readings"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/noise"] }
 
-[inputs.shopfloor.timing]
+[inputs.noise.timing]
 event_time_field = "ts"
 
 [pipelines.noise]
 description = "Noise exposure over the shift"
 
-# Noise readings only, each with its sound energy.
+# Each noise reading's sound energy.
 [pipelines.noise.stages.energy]
 type = "rule"
-inputs = ["shopfloor_events"]
+inputs = ["noise_readings"]
 output = "noise_energy"
-
-[[pipelines.noise.stages.energy.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
-actions = [{ type = "drop_message" }]
-
-[[pipelines.noise.stages.energy.parameters.rules]]
-condition = { field_path = "sensor", operation = "not_equals", value = "noise_level" }
-actions = [{ type = "drop_message" }]
 
 [[pipelines.noise.stages.energy.parameters.rules]]
 condition = { operation = "always" }

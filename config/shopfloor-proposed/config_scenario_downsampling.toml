@@ -7,30 +7,23 @@
 # The 1 s is real time, as in the original scenario. For a longer view, change size_ms (e.g. 60000 for one row per
 # minute).
 #
+# Events: every sensor topic of the simulator, with the wildcard factory/sensors/#.
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (any scene)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_downsampling.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.sensors]
+type = "mqtt_sub"
+output = "readings"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/#"] }
 
-[inputs.shopfloor.timing]
+[inputs.sensors.timing]
 event_time_field = "ts"
 
 [pipelines.downsampling]
 description = "One row per sensor per second"
-
-# Sensor readings only.
-[pipelines.downsampling.stages.readings]
-type = "rule"
-inputs = ["shopfloor_events"]
-output = "readings"
-
-[[pipelines.downsampling.stages.readings.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
-actions = [{ type = "drop_message" }]
 
 [pipelines.downsampling.stages.per_second]
 type = "window"

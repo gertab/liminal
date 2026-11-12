@@ -10,33 +10,32 @@
 # The level starts at 2, as the simulator's stocker does, so start this config before the scene (or change
 # `initial`). The capacity is the 4 in the expressions.
 #
+# Events: the simulator's MQTT topic factory/actions (every pick and place).
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
 #                   (or stocker_full_empty)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_stocker.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.actions]
+type = "mqtt_sub"
+output = "actions"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/actions"] }
 
-[inputs.shopfloor.timing]
+[inputs.actions.timing]
 event_time_field = "ts"
 
 [pipelines.stocker]
 description = "Stocker fill level, full and empty"
 
 # Actions at the stocker.
-[pipelines.stocker.stages.actions]
+[pipelines.stocker.stages.at_stocker]
 type = "rule"
-inputs = ["shopfloor_events"]
+inputs = ["actions"]
 output = "stocker_actions"
 
-[[pipelines.stocker.stages.actions.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "action" }
-actions = [{ type = "drop_message" }]
-
-[[pipelines.stocker.stages.actions.parameters.rules]]
+[[pipelines.stocker.stages.at_stocker.parameters.rules]]
 condition = { field_path = "at", operation = "not_equals", value = "stocker" }
 actions = [{ type = "drop_message" }]
 

@@ -14,36 +14,24 @@
 # Demo time scale: 15 s and 60 s windows instead of 15 and 60 min. For real time, set size_ms = 900000 and 3600000
 # (slide_ms = 60000).
 #
+# Events: the simulator's MQTT topic factory/sensors/temperature (the deflasher's and the hall's readings).
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
 #                   (or deflasher_heat_spike, hall_draft)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_temperature_rate.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.temperatures]
+type = "mqtt_sub"
+output = "temperatures"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/temperature"] }
 
-[inputs.shopfloor.timing]
+[inputs.temperatures.timing]
 event_time_field = "ts"
 
 [pipelines.temperature_rate]
 description = "Temperature change within any 15 and 60 minutes"
-
-# Temperature readings only.
-[pipelines.temperature_rate.stages.temperatures]
-type = "rule"
-inputs = ["shopfloor_events"]
-output = "temperatures"
-channel = { type = "broadcast", capacity = 1024 }
-
-[[pipelines.temperature_rate.stages.temperatures.parameters.rules]]
-condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
-actions = [{ type = "drop_message" }]
-
-[[pipelines.temperature_rate.stages.temperatures.parameters.rules]]
-condition = { field_path = "sensor_kind", operation = "not_equals", value = "temperature" }
-actions = [{ type = "drop_message" }]
 
 # Any 15 "minutes", every "minute".
 [pipelines.temperature_rate.stages.window_15]

@@ -11,31 +11,23 @@
 # Demo time scale: the last 20 s, every 5 s, instead of the last 10 min every minute (size_ms = 600000,
 # slide_ms = 60000).
 #
+# Events: the simulator's MQTT topics factory/mm/<mm> (everything about each MM), with the wildcard factory/mm/+.
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or production)
 #   Liminal:        cargo run -- --config config/shopfloor/config_scenario_utilisation.toml
 
-[inputs.shopfloor]
-type = "tcp_input"
-output = "shopfloor_events"
+[inputs.mms]
+type = "mqtt_sub"
+output = "mm_events"
 channel = { type = "broadcast", capacity = 1024 }
-parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/mm/+"] }
 
-[inputs.shopfloor.timing]
+[inputs.mms.timing]
 event_time_field = "ts"
 
 [pipelines.utilisation]
 description = "Share of the last minutes each MM spent moving, performing or idle"
-
-# The MMs' events.
-[pipelines.utilisation.stages.mm_events]
-type = "rule"
-inputs = ["shopfloor_events"]
-output = "mm_events"
-
-[[pipelines.utilisation.stages.mm_events.parameters.rules]]
-condition = { field_path = "entity", operation = "startswith", value = "mm" }
-actions = [{ type = "pass_through" }]
-else_actions = [{ type = "drop_message" }]
 
 # Per MM: its mode, and the seconds spent in each mode since its previous event.
 [pipelines.utilisation.stages.mode]
