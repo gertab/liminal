@@ -1,3 +1,9 @@
+
+NOTE:  
+Shopfloor simulator was moved to [https://github.com/gertab/shopfloor-sim](https://github.com/gertab/shopfloor-sim).  
+Refer to liminal examples that interact with this simulator in `config/examples/config_shopfloor_...`.
+
+
 # Liminal
 
 ```
