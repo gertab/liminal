@@ -30,6 +30,8 @@ const conditionOperationOptions = [
   "<",
   "<=",
 ];
+/** Renderers whose editor is a block below the parameter's label, not an inline input. */
+const blockRenderers = ["rule_builder", "object_list", "condition", "key_value"];
 export function ParameterRow({
   nodeId,
   parameter,
@@ -95,13 +97,29 @@ export function ParameterRow({
     return (
       <div
         className={
-          fieldSpec?.renderer === "rule_builder" || fieldSpec?.renderer === "object_list"
+          fieldSpec?.renderer && blockRenderers.includes(fieldSpec.renderer)
             ? "parameter-row read-only rule-parameter-row"
             : "parameter-row read-only"
         }
       >
         {header}
-        {fieldSpec?.renderer === "object_list" && fieldSpec.schema ? (
+        {fieldSpec?.renderer === "condition" ? (
+          <ConditionParameterEditor
+            nodeId={nodeId}
+            parameterKey={parameter.key}
+            value={parameter.raw_value}
+            saveState={saveState}
+            onUpdateParameterJson={onUpdateParameterJson}
+          />
+        ) : fieldSpec?.renderer === "key_value" ? (
+          <KeyValueParameterEditor
+            nodeId={nodeId}
+            parameterKey={parameter.key}
+            value={parameter.raw_value}
+            saveState={saveState}
+            onUpdateParameterJson={onUpdateParameterJson}
+          />
+        ) : fieldSpec?.renderer === "object_list" && fieldSpec.schema ? (
           <ObjectListParameterEditor
             nodeId={nodeId}
             parameterKey={parameter.key}
@@ -185,64 +203,35 @@ export function MissingParameterRow({
   saveState: SaveState;
   onUpdateParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
 }) {
-  if (field.renderer === "rule_builder" && field.schema) {
-    return (
-      <div className="parameter-row read-only missing-parameter rule-parameter-row">
-        <div className="parameter-label">
-          <strong title={field.key}>{field.label}</strong>
-          <span>{field.kind}</span>
-        </div>
-        <FieldStatusBadge status={field.status} note={field.status_note} />
-        {field.help && <p className="parameter-help">{field.help}</p>}
-        <RuleParameterEditor
-          nodeId={nodeId}
-          parameterKey={field.key}
-          value={[]}
-          schema={field.schema}
-          saveState={saveState}
-          onUpdateParameterJson={onUpdateParameterJson}
-        />
+  const header = (
+    <>
+      <div className="parameter-label">
+        <strong title={field.key}>{field.label}</strong>
+        <span>{field.kind}</span>
       </div>
-    );
-  }
+      <FieldStatusBadge status={field.status} note={field.status_note} />
+      {field.help && <p className="parameter-help">{field.help}</p>}
+    </>
+  );
+  const editorProps = { nodeId, parameterKey: field.key, saveState, onUpdateParameterJson };
+  const editor =
+    field.renderer === "rule_builder" && field.schema ? (
+      <RuleParameterEditor {...editorProps} value={[]} schema={field.schema} />
+    ) : field.renderer === "string_array" ? (
+      <StringArrayParameterEditor {...editorProps} value={defaultValueForField(field)} />
+    ) : field.renderer === "object_list" && field.schema ? (
+      <ObjectListParameterEditor {...editorProps} value={[]} schema={field.schema} />
+    ) : field.renderer === "key_value" ? (
+      <KeyValueParameterEditor {...editorProps} value={{}} />
+    ) : field.renderer === "condition" ? (
+      <ConditionParameterEditor {...editorProps} value={undefined} />
+    ) : null;
 
-  if (field.renderer === "string_array") {
+  if (editor) {
     return (
       <div className="parameter-row read-only missing-parameter rule-parameter-row">
-        <div className="parameter-label">
-          <strong title={field.key}>{field.label}</strong>
-          <span>{field.kind}</span>
-        </div>
-        <FieldStatusBadge status={field.status} note={field.status_note} />
-        {field.help && <p className="parameter-help">{field.help}</p>}
-        <StringArrayParameterEditor
-          nodeId={nodeId}
-          parameterKey={field.key}
-          value={defaultValueForField(field)}
-          saveState={saveState}
-          onUpdateParameterJson={onUpdateParameterJson}
-        />
-      </div>
-    );
-  }
-
-  if (field.renderer === "object_list" && field.schema) {
-    return (
-      <div className="parameter-row read-only missing-parameter rule-parameter-row">
-        <div className="parameter-label">
-          <strong title={field.key}>{field.label}</strong>
-          <span>{field.kind}</span>
-        </div>
-        <FieldStatusBadge status={field.status} note={field.status_note} />
-        {field.help && <p className="parameter-help">{field.help}</p>}
-        <ObjectListParameterEditor
-          nodeId={nodeId}
-          parameterKey={field.key}
-          value={[]}
-          schema={field.schema}
-          saveState={saveState}
-          onUpdateParameterJson={onUpdateParameterJson}
-        />
+        {header}
+        {editor}
       </div>
     );
   }
@@ -251,12 +240,7 @@ export function MissingParameterRow({
 
   return (
     <div className="parameter-row read-only missing-parameter">
-      <div className="parameter-label">
-        <strong title={field.key}>{field.label}</strong>
-        <span>{field.kind}</span>
-      </div>
-      <FieldStatusBadge status={field.status} note={field.status_note} />
-      {field.help && <p className="parameter-help">{field.help}</p>}
+      {header}
       <div className="parameter-default">
         <span>{field.required ? "required" : "default"}</span>
         <strong>{field.default_value ?? "not set"}</strong>
@@ -356,8 +340,9 @@ type JsonObject = { [key: string]: JsonValue };
 
 /**
  * Edits an array of flat objects (`renderer = "object_list"`), described by the field's schema: an
- * `array` of `object` with scalar fields. One row per item, one input per field that applies to the
- * item (`applies_when` on the item's other fields, e.g. no field for a count).
+ * `array` of `object` with scalar fields, or conditions (`renderer = "condition"`). One row per
+ * item, one input per field that applies to the item (`applies_when` on the item's other fields,
+ * e.g. no field for a count). Expressions and conditions take the row's full width.
  */
 function ObjectListParameterEditor({
   nodeId,
@@ -400,20 +385,35 @@ function ObjectListParameterEditor({
         draftItems.map((item, index) => (
           <div className="object-list-row" key={index}>
             <div className="object-list-fields">
-              {applicableFields(item, itemFields).map((field) => (
-                <label className="object-list-field" key={field.key} title={field.help}>
-                  <span>
-                    {field.label}
-                    {field.required && " *"}
-                  </span>
-                  <ObjectFieldInput
+              {applicableFields(item, itemFields).map((field) =>
+                field.renderer === "condition" ? (
+                  <ObjectConditionField
+                    key={field.key}
                     field={field}
                     value={item[field.key]}
                     ariaLabel={`${parameterKey} item ${index + 1} ${field.key}`}
+                    issueFor={(key) => issueForPath(issues, `${index}.${field.key}.${key}`)}
                     onChange={(nextValue) => updateItem(index, withObjectField(item, field.key, nextValue))}
                   />
-                </label>
-              ))}
+                ) : (
+                  <label
+                    className={field.renderer === "expression" ? "object-list-field wide" : "object-list-field"}
+                    key={field.key}
+                    title={field.help}
+                  >
+                    <span>
+                      {field.label}
+                      {field.required && " *"}
+                    </span>
+                    <ObjectFieldInput
+                      field={field}
+                      value={item[field.key]}
+                      ariaLabel={`${parameterKey} item ${index + 1} ${field.key}`}
+                      onChange={(nextValue) => updateItem(index, withObjectField(item, field.key, nextValue))}
+                    />
+                  </label>
+                ),
+              )}
             </div>
             <div className="object-list-row-actions">
               <button
@@ -449,7 +449,7 @@ function ObjectListParameterEditor({
       {issues.length > 0 && (
         <ul className="object-list-issues">
           {issues.map((issue) => (
-            <li key={issue}>{issue}</li>
+            <li key={`${issue.path}-${issue.message}`}>{issue.message}</li>
           ))}
         </ul>
       )}
@@ -536,6 +536,51 @@ function ObjectFieldInput({
   );
 }
 
+/** A condition field of an object-list item, e.g. an update's `when`. An optional one can be added and removed. */
+function ObjectConditionField({
+  field,
+  value,
+  ariaLabel,
+  issueFor,
+  onChange,
+}: {
+  field: FieldSpec;
+  value: JsonValue | undefined;
+  ariaLabel: string;
+  issueFor: (key: string) => ValidationIssue | undefined;
+  onChange: (value: JsonValue | undefined) => void;
+}) {
+  const condition = value !== undefined && isJsonObject(value) ? value : null;
+
+  return (
+    <div className="object-list-field wide" title={field.help}>
+      <span>
+        {field.label}
+        {field.required && " *"}
+      </span>
+      {condition ? (
+        <div className="object-list-condition">
+          <ConditionEditor condition={condition} issueFor={issueFor} onChange={onChange} />
+          {!field.required && (
+            <button
+              className="icon-button danger"
+              onClick={() => onChange(undefined)}
+              aria-label={`Remove ${ariaLabel}`}
+              title="Remove condition"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      ) : (
+        <button className="compact-add-button" aria-label={`Add ${ariaLabel}`} onClick={() => onChange(newCondition())}>
+          Add condition
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** The item with `key` set, keeping its place, or removed when `value` is undefined. */
 function withObjectField(item: JsonObject, key: string, value: JsonValue | undefined): JsonObject {
   if (value !== undefined) {
@@ -571,20 +616,268 @@ function defaultObjectItem(fields: FieldSpec[]): JsonObject {
   return withoutInapplicable(item, fields);
 }
 
-function validateObjectList(items: JsonObject[], fields: FieldSpec[]): string[] {
-  const issues: string[] = [];
+/** Issues at `<index>.<field>`, or `<index>.<field>.<condition field>` inside a condition. */
+function validateObjectList(items: JsonObject[], fields: FieldSpec[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
   items.forEach((item, index) => {
     for (const field of applicableFields(item, fields)) {
       const value = item[field.key];
+      const path = `${index}.${field.key}`;
       if (field.required && isEmptyRequiredValue(value)) {
-        issues.push(`Item ${index + 1}: ${field.label} is required.`);
+        issues.push({ path, message: `Item ${index + 1}: ${field.label} is required.` });
       }
       if (field.kind === "integer" && typeof value === "number" && !Number.isInteger(value)) {
-        issues.push(`Item ${index + 1}: ${field.label} must be a whole number.`);
+        issues.push({ path, message: `Item ${index + 1}: ${field.label} must be a whole number.` });
+      }
+      if (field.renderer === "condition" && value !== undefined) {
+        validateCondition(value, path, `Item ${index + 1} ${field.label.toLowerCase()}`, issues);
       }
     }
   });
   return issues;
+}
+
+/**
+ * A condition (`field_path`, `operation`, `value`): the operation, and the field and value unless
+ * the operation is always or never. Used by rules and by the `condition` renderer.
+ */
+function ConditionEditor({
+  condition,
+  issueFor,
+  onChange,
+}: {
+  condition: JsonObject;
+  issueFor: (key: string) => ValidationIssue | undefined;
+  onChange: (condition: JsonObject) => void;
+}) {
+  const operation = typeof condition.operation === "string" ? condition.operation : "equals";
+  const isUnconditional = operation === "always" || operation === "never";
+
+  return (
+    <div className="rule-condition">
+      <RuleSelect
+        label="Operation"
+        value={operation}
+        options={conditionOperationOptions}
+        issue={issueFor("operation")}
+        onChange={(nextValue) => onChange({ ...condition, operation: nextValue })}
+      />
+      {!isUnconditional && (
+        <>
+          <RuleInput
+            label="Field"
+            value={formatJsonValue(condition.field_path ?? "")}
+            issue={issueFor("field_path")}
+            onChange={(nextValue) => onChange({ ...condition, field_path: nextValue })}
+          />
+          <RuleInput
+            label="Value"
+            value={formatJsonValue(condition.value ?? "")}
+            issue={issueFor("value")}
+            onChange={(nextValue) => onChange({ ...condition, value: parseJsonLikeValue(nextValue) })}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A condition to start from: equals, with the field and value to fill in. */
+function newCondition(): JsonObject {
+  return { field_path: "", operation: "equals", value: "" };
+}
+
+/**
+ * Edits an optional condition parameter (`renderer = "condition"`), e.g. `reset_when`. Unset, it
+ * offers to add one; the row's Remove button unsets it again.
+ */
+function ConditionParameterEditor({
+  nodeId,
+  parameterKey,
+  value,
+  saveState,
+  onUpdateParameterJson,
+}: {
+  nodeId: string;
+  parameterKey: string;
+  value: JsonValue | undefined;
+  saveState: SaveState;
+  onUpdateParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
+}) {
+  const saved = useMemo(() => (value !== undefined && isJsonObject(value) ? value : null), [value]);
+  const [draft, setDraft] = useState<JsonObject | null>(saved);
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const issues = useMemo(() => {
+    const found: ValidationIssue[] = [];
+    if (draft) {
+      validateCondition(draft, "condition", "Condition", found);
+    }
+    return found;
+  }, [draft]);
+
+  useEffect(() => {
+    setDraft(saved);
+  }, [saved]);
+
+  return (
+    <div className="string-array-editor">
+      {draft ? (
+        <ConditionEditor
+          condition={draft}
+          issueFor={(key) => issueForPath(issues, `condition.${key}`)}
+          onChange={setDraft}
+        />
+      ) : (
+        <p className="empty-state">No condition.</p>
+      )}
+      <div className="string-array-actions">
+        {!draft && (
+          <button className="compact-add-button" onClick={() => setDraft(newCondition())}>
+            Add condition
+          </button>
+        )}
+        <button disabled={!isDirty || saveState === "saving"} onClick={() => setDraft(saved)}>
+          Revert
+        </button>
+        <button
+          disabled={!draft || !isDirty || saveState === "saving" || issues.length > 0}
+          onClick={() => draft && onUpdateParameterJson(nodeId, parameterKey, draft)}
+        >
+          {saveState === "saving" ? "Saving" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type KeyValueRow = { name: string; text: string };
+
+/**
+ * Edits a map of names to numbers, text or true/false (`renderer = "key_value"`), e.g. `initial`.
+ * A value is read as elsewhere in the inspector: a number, true or false, else text.
+ */
+function KeyValueParameterEditor({
+  nodeId,
+  parameterKey,
+  value,
+  saveState,
+  onUpdateParameterJson,
+}: {
+  nodeId: string;
+  parameterKey: string;
+  value: JsonValue;
+  saveState: SaveState;
+  onUpdateParameterJson: (nodeId: string, parameterKey: string, value: JsonValue) => Promise<void>;
+}) {
+  const savedRows = useMemo<KeyValueRow[]>(
+    () =>
+      isJsonObject(value)
+        ? Object.entries(value).map(([name, item]) => ({ name, text: formatScalar(item) }))
+        : [],
+    [value],
+  );
+  const [draftRows, setDraftRows] = useState<KeyValueRow[]>(savedRows);
+  const isDirty = JSON.stringify(draftRows) !== JSON.stringify(savedRows);
+  const issues = useMemo(() => validateKeyValueRows(draftRows), [draftRows]);
+
+  useEffect(() => {
+    setDraftRows(savedRows);
+  }, [savedRows]);
+
+  const updateRow = (index: number, change: Partial<KeyValueRow>) =>
+    setDraftRows((rows) => rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...change } : row)));
+
+  return (
+    <div className="string-array-editor">
+      <div className="string-array-list">
+        {draftRows.length === 0 ? (
+          <p className="empty-state">No values configured.</p>
+        ) : (
+          draftRows.map((row, index) => (
+            <div className="key-value-row" key={index}>
+              <input
+                value={row.name}
+                placeholder="name"
+                aria-label={`${parameterKey} name ${index + 1}`}
+                onChange={(event) => updateRow(index, { name: event.target.value })}
+              />
+              <input
+                value={row.text}
+                placeholder="value"
+                aria-label={`${parameterKey} value ${index + 1}`}
+                onChange={(event) => updateRow(index, { text: event.target.value })}
+              />
+              <button
+                className="icon-button danger"
+                onClick={() => setDraftRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}
+                aria-label={`Remove ${parameterKey} value ${index + 1}`}
+                title="Remove"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      {issues.length > 0 && (
+        <ul className="object-list-issues">
+          {issues.map((issue) => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      )}
+      <div className="string-array-actions">
+        <button
+          className="compact-add-button"
+          onClick={() => setDraftRows((rows) => [...rows, { name: "", text: "0" }])}
+        >
+          Add
+        </button>
+        <button disabled={!isDirty || saveState === "saving"} onClick={() => setDraftRows(savedRows)}>
+          Revert
+        </button>
+        <button
+          disabled={!isDirty || saveState === "saving" || issues.length > 0}
+          onClick={() =>
+            onUpdateParameterJson(
+              nodeId,
+              parameterKey,
+              Object.fromEntries(draftRows.map((row) => [row.name.trim(), parseJsonLikeValue(row.text)])),
+            )
+          }
+        >
+          {saveState === "saving" ? "Saving" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function validateKeyValueRows(rows: KeyValueRow[]): string[] {
+  const issues: string[] = [];
+  const names = new Set<string>();
+  rows.forEach((row, index) => {
+    const name = row.name.trim();
+    if (name === "") {
+      issues.push(`Row ${index + 1}: name is required.`);
+    } else if (names.has(name)) {
+      issues.push(`Row ${index + 1}: '${name}' is used twice.`);
+    }
+    names.add(name);
+    const value = parseJsonLikeValue(row.text);
+    if (value === null || typeof value === "object") {
+      issues.push(`Row ${index + 1}: the value must be a number, text or true/false.`);
+    }
+  });
+  return issues;
+}
+
+/** A scalar as text to edit. Text that would read back as something else (`"0"`, `"true"`) is quoted. */
+function formatScalar(value: JsonValue): string {
+  if (typeof value === "string" && parseJsonLikeValue(value) !== value) {
+    return JSON.stringify(value);
+  }
+  return formatJsonValue(value);
 }
 
 function RuleParameterEditor({
@@ -691,8 +984,6 @@ function RuleCard({
   const condition = isJsonObject(ruleObject.condition) ? ruleObject.condition : {};
   const actions = Array.isArray(ruleObject.actions) ? ruleObject.actions : [];
   const elseActions = Array.isArray(ruleObject.else_actions) ? ruleObject.else_actions : [];
-  const operation = typeof condition.operation === "string" ? condition.operation : "equals";
-  const isUnconditional = operation === "always" || operation === "never";
 
   return (
     <div className="rule-card">
@@ -724,37 +1015,11 @@ function RuleCard({
         </div>
       </div>
 
-      <div className="rule-condition">
-        <RuleSelect
-          label="Operation"
-          value={operation}
-          options={conditionOperationOptions}
-          issue={issueForPath(issues, `condition.operation`)}
-          onChange={(nextValue) =>
-            onChange(setObjectValue(ruleObject, ["condition", "operation"], nextValue))
-          }
-        />
-        {!isUnconditional && (
-          <>
-            <RuleInput
-              label="Field"
-              value={formatJsonValue(condition.field_path ?? "")}
-              issue={issueForPath(issues, `condition.field_path`)}
-              onChange={(nextValue) =>
-                onChange(setObjectValue(ruleObject, ["condition", "field_path"], nextValue))
-              }
-            />
-            <RuleInput
-              label="Value"
-              value={formatJsonValue(condition.value ?? "")}
-              issue={issueForPath(issues, `condition.value`)}
-              onChange={(nextValue) =>
-                onChange(setObjectValue(ruleObject, ["condition", "value"], parseJsonLikeValue(nextValue)))
-              }
-            />
-          </>
-        )}
-      </div>
+      <ConditionEditor
+        condition={condition}
+        issueFor={(key) => issueForPath(issues, `condition.${key}`)}
+        onChange={(nextCondition) => onChange({ ...ruleObject, condition: nextCondition })}
+      />
 
       <RuleActionList
         title="Actions"
@@ -1299,46 +1564,10 @@ function validateRules(
   rules.forEach((rule, ruleIndex) => {
     const rulePath = `rules.${ruleIndex}`;
     const ruleObject = isJsonObject(rule) ? rule : {};
-    const condition = isJsonObject(ruleObject.condition) ? ruleObject.condition : {};
     const actions = Array.isArray(ruleObject.actions) ? ruleObject.actions : [];
     const elseActions = Array.isArray(ruleObject.else_actions) ? ruleObject.else_actions : [];
-    const fieldPath = condition.field_path;
-    const operation = condition.operation;
-    const isUnconditional = operation === "always" || operation === "never";
 
-    if (!isUnconditional && typeof fieldPath === "string" && fieldPath.trim().length > 0) {
-      const pathIssue = validateFieldPath(fieldPath);
-      if (pathIssue) {
-        issues.push({
-          path: `${rulePath}.condition.field_path`,
-          message: `Rule ${ruleIndex + 1}: ${pathIssue}`,
-        });
-      }
-    }
-
-    if (!isUnconditional && (typeof fieldPath !== "string" || fieldPath.trim().length === 0)) {
-      issues.push({
-        path: `${rulePath}.condition.field_path`,
-        message: `Rule ${ruleIndex + 1}: field path is required.`,
-      });
-    }
-
-    if (typeof operation !== "string" || !conditionOperationOptions.includes(operation)) {
-      issues.push({
-        path: `${rulePath}.condition.operation`,
-        message: `Rule ${ruleIndex + 1}: operation is not supported.`,
-      });
-    }
-
-    if (["<", "<=", ">", ">="].includes(typeof operation === "string" ? operation : "")) {
-      const conditionValue = condition.value;
-      if (typeof conditionValue !== "number") {
-        issues.push({
-          path: `${rulePath}.condition.value`,
-          message: `Rule ${ruleIndex + 1}: comparison value must be numeric.`,
-        });
-      }
-    }
+    validateCondition(ruleObject.condition, `${rulePath}.condition`, `Rule ${ruleIndex + 1}`, issues);
 
     if (actions.length === 0) {
       issues.push({
@@ -1358,6 +1587,56 @@ function validateRules(
   });
 
   return issues;
+}
+
+/**
+ * Checks a condition at `path`: a supported operation and, unless it is always or never, a valid
+ * field path, and a number to compare with for <, <=, > and >=.
+ */
+function validateCondition(
+  value: JsonValue | undefined,
+  path: string,
+  label: string,
+  issues: ValidationIssue[],
+) {
+  const condition = value !== undefined && isJsonObject(value) ? value : {};
+  const fieldPath = condition.field_path;
+  const operation = condition.operation;
+  const isUnconditional = operation === "always" || operation === "never";
+
+  if (!isUnconditional && typeof fieldPath === "string" && fieldPath.trim().length > 0) {
+    const pathIssue = validateFieldPath(fieldPath);
+    if (pathIssue) {
+      issues.push({
+        path: `${path}.field_path`,
+        message: `${label}: ${pathIssue}`,
+      });
+    }
+  }
+
+  if (!isUnconditional && (typeof fieldPath !== "string" || fieldPath.trim().length === 0)) {
+    issues.push({
+      path: `${path}.field_path`,
+      message: `${label}: field path is required.`,
+    });
+  }
+
+  if (typeof operation !== "string" || !conditionOperationOptions.includes(operation)) {
+    issues.push({
+      path: `${path}.operation`,
+      message: `${label}: operation is not supported.`,
+    });
+  }
+
+  if (["<", "<=", ">", ">="].includes(typeof operation === "string" ? operation : "")) {
+    const conditionValue = condition.value;
+    if (typeof conditionValue !== "number") {
+      issues.push({
+        path: `${path}.value`,
+        message: `${label}: comparison value must be numeric.`,
+      });
+    }
+  }
 }
 
 function validateRuleActions(
@@ -1668,29 +1947,6 @@ function defaultValueForField(field: FieldSpec): JsonValue {
   }
 
   return "";
-}
-
-function setObjectValue(
-  value: { [key: string]: JsonValue },
-  path: string[],
-  nextValue: JsonValue,
-): { [key: string]: JsonValue } {
-  if (path.length === 0) {
-    return value;
-  }
-
-  const [head, ...tail] = path;
-
-  if (tail.length === 0) {
-    return { ...value, [head]: nextValue };
-  }
-
-  const child = isJsonObject(value[head]) ? value[head] : {};
-
-  return {
-    ...value,
-    [head]: setObjectValue(child, tail, nextValue),
-  };
 }
 
 function ruleSummary(condition: { [key: string]: JsonValue }, actionCount: number, elseActionCount: number) {

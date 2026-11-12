@@ -1,4 +1,5 @@
-//! Expressions over message fields, evaluated with evalexpr. Used by `rule`'s `compute_field`.
+//! Expressions over message fields, evaluated with evalexpr. Used by `rule`'s `compute_field` and by
+//! `reduce`.
 //!
 //! - Variables are a payload's fields flattened into names: `temperature`, `device.id`,
 //!   `items[0].value`. Numbers are floats; nulls are left out.
@@ -75,14 +76,27 @@ impl Variables {
     }
 
     /// Adds a payload's fields, flattened under `prefix` (`prefix.a.b`, `prefix[0]`), or as they are
-    /// (`a.b`) with an empty prefix.
+    /// (`a.b`) with an empty prefix. Numbers are floats, so `value / 2` never rounds.
     pub fn add_payload(&mut self, prefix: &str, payload: &Value) {
-        match payload {
-            Value::Number(number) => {
-                if let Some(float) = number.as_f64() {
-                    self.set(prefix, ExpressionValue::Float(float));
+        self.add(prefix, payload, false);
+    }
+
+    /// Like `add_payload`, but whole numbers stay integers: for values expressions wrote (a `reduce`
+    /// state), so that an integer counter stays one.
+    pub fn add_typed(&mut self, prefix: &str, values: &Value) {
+        self.add(prefix, values, true);
+    }
+
+    fn add(&mut self, prefix: &str, value: &Value, keep_integers: bool) {
+        match value {
+            Value::Number(number) => match number.as_i64() {
+                Some(integer) if keep_integers => self.set(prefix, ExpressionValue::Int(integer)),
+                _ => {
+                    if let Some(float) = number.as_f64() {
+                        self.set(prefix, ExpressionValue::Float(float));
+                    }
                 }
-            }
+            },
             Value::Bool(boolean) => self.set(prefix, ExpressionValue::Boolean(*boolean)),
             Value::String(string) => self.set(prefix, ExpressionValue::String(string.clone())),
             Value::Object(map) => {
@@ -92,12 +106,12 @@ impl Variables {
                     } else {
                         format!("{}.{}", prefix, key)
                     };
-                    self.add_payload(&name, value);
+                    self.add(&name, value, keep_integers);
                 }
             }
             Value::Array(items) => {
                 for (index, value) in items.iter().enumerate() {
-                    self.add_payload(&format!("{}[{}]", prefix, index), value);
+                    self.add(&format!("{}[{}]", prefix, index), value, keep_integers);
                 }
             }
             Value::Null => {}
@@ -245,6 +259,20 @@ mod tests {
                 .unwrap(),
             3.0
         );
+    }
+
+    #[test]
+    fn typed_values_keep_their_integers() {
+        let mut variables = Variables::new();
+        variables.add_payload("payload", &json!({ "n": 2 }));
+        variables.add_typed("state", &json!({ "n": 2, "total": 2.0 }));
+        let eval = |source: &str| {
+            to_json(Expression::parse(source).unwrap().eval(&variables).unwrap()).unwrap()
+        };
+
+        assert_eq!(eval("payload.n / 4"), json!(0.5));
+        assert_eq!(eval("state.n + 1"), json!(3));
+        assert_eq!(eval("state.total + 1"), json!(3.0));
     }
 
     #[test]

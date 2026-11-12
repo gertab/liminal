@@ -1,0 +1,63 @@
+# Reduce: a running state per sensor
+#
+# Two simulated sensors report once a second. A rule names each one, and a reduce stage keeps a state for each sensor
+# that it updates and outputs with every reading: the number of readings, the highest value so far, a smoothed value
+# (an exponentially weighted moving average) and whether the value went up since the previous reading.
+#
+#   cargo run -- --config config/examples/config_reduce.toml
+
+[inputs.sensor_a]
+type = "simulated"
+output = "readings_a"
+parameters = { interval_ms = 1000, distribution = "uniform", min_value = 20.0, max_value = 22.0 }
+
+[inputs.sensor_b]
+type = "simulated"
+output = "readings_b"
+parameters = { interval_ms = 1000, distribution = "normal", min_value = 40.0, max_value = 50.0 }
+
+[pipelines.reduce_demo]
+description = "A running state per sensor"
+
+[pipelines.reduce_demo.stages.name_a]
+type = "rule"
+inputs = ["readings_a"]
+output = "named_a"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "set_field", field_path = "sensor", value = "a" }] }] }
+
+[pipelines.reduce_demo.stages.name_b]
+type = "rule"
+inputs = ["readings_b"]
+output = "named_b"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "set_field", field_path = "sensor", value = "b" }] }] }
+
+# One state per sensor (group_by). Each update reads the reading (value), the state before it (state.*), the previous
+# reading (prev.*) and count, the readings so far: count == 1 on the first one.
+[pipelines.reduce_demo.stages.running]
+type = "reduce"
+inputs = ["named_a", "named_b"]
+output = "sensor_state"
+
+[pipelines.reduce_demo.stages.running.parameters]
+group_by = ["sensor"]
+initial = { max = 0, readings = 0, rising = false }
+update = [
+  { expression = "count", field = "readings" },
+  { expression = "if(count == 1, value, max(state.max, value))", field = "max" },
+  { expression = "value > prev.value", field = "rising" }
+]
+
+# Other states:
+#   an alarm with hysteresis, on above 80 and off again below 70:
+#     { field = "alarm", expression = "if(state.alarm, value >= 70.0, value > 80.0)" }
+#   energy from power in watts: { field = "kwh", expression = "state.kwh + value * dt / 3600000.0" }
+#   an odometer per MM of the shopfloor simulator, since its last place:
+#     group_by = ["entity"]
+#     initial = { distance_m = 0.0 }
+#     update = [{ field = "distance_m", expression = "state.distance_m + math::hypot(x - prev.x, y - prev.y)",
+#                 when = { field_path = "kind", operation = "==", value = "position" } }]
+#     reset_when = { field_path = "action", operation = "==", value = "place" }
+
+[outputs.console]
+type = "console"
+inputs = ["sensor_state"]

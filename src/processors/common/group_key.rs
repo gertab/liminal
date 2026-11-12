@@ -1,9 +1,14 @@
-//! `group_by` for stages that keep state per key: which window a message belongs to.
+//! `group_by` for stages that keep state per key (`window`, `reduce`): which key a message belongs
+//! to, and the key's fields in an output.
 
 use super::field_utils::FieldUtils;
+use super::warn_once::WarnOnce;
 
 use anyhow::{Context, Result};
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+/// Past this many keys, a stage warns: `group_by` is probably on a field with too many values.
+const KEY_COUNT_WARNING: usize = 10_000;
 
 /// The `group_by` field paths of a stage.
 #[derive(Debug, Clone, Default)]
@@ -45,12 +50,48 @@ impl GroupBy {
         Some(GroupKey { id, values })
     }
 
+    /// `key_of`, warning once about messages without a key, which stages skip.
+    pub fn key_or_warn(&self, payload: &Value, warnings: &mut WarnOnce) -> Option<GroupKey> {
+        let key = self.key_of(payload);
+        if key.is_none() {
+            warnings.warn("missing-key", || {
+                format!(
+                    "messages without the group_by fields ({}) are skipped",
+                    self.paths.join(", ")
+                )
+            });
+        }
+        key
+    }
+
+    /// For a stage about to add a key to the `key_count` it holds: warns once past
+    /// `KEY_COUNT_WARNING`.
+    pub fn check_key_count(&self, key_count: usize, warnings: &mut WarnOnce) {
+        if key_count >= KEY_COUNT_WARNING {
+            warnings.warn("key-count", || {
+                format!("more than {KEY_COUNT_WARNING} keys: is group_by on the right field?")
+            });
+        }
+    }
+
     /// Writes the key's values into `payload`, each at its own path.
     pub fn write_key(&self, key: &GroupKey, payload: &mut Value) -> Result<()> {
         for (path, value) in self.paths.iter().zip(&key.values) {
             FieldUtils::set_field_value(payload, path, value.clone())?;
         }
         Ok(())
+    }
+
+    /// A new output payload holding the key's values, each at its own path. Paths that can't all be
+    /// written (`a` and `a.b`) are warned about once.
+    pub fn key_payload(&self, key: &GroupKey, warnings: &mut WarnOnce) -> Value {
+        let mut payload = Value::Object(Map::new());
+        if let Err(error) = self.write_key(key, &mut payload) {
+            warnings.warn("write-key", || {
+                format!("could not write the group_by fields: {}", error)
+            });
+        }
+        payload
     }
 
     /// The top-level output field each path writes to (`device.id` writes `device`).
@@ -82,6 +123,14 @@ mod tests {
         let group_by = GroupBy::new(vec!["sensor".into()]).unwrap();
         assert!(group_by.key_of(&json!({ "value": 1.0 })).is_none());
         assert!(group_by.key_of(&json!({ "sensor": null })).is_none());
+
+        let mut warnings = WarnOnce::new("stage");
+        assert!(
+            group_by
+                .key_or_warn(&json!({ "value": 1.0 }), &mut warnings)
+                .is_none()
+        );
+        assert!(warnings.has_warned("missing-key"));
     }
 
     #[test]
@@ -99,14 +148,27 @@ mod tests {
         let key = group_by
             .key_of(&json!({ "sensor": "t", "device": { "id": 1 } }))
             .unwrap();
-        let mut payload = json!({});
-        group_by.write_key(&key, &mut payload).unwrap();
+        let mut warnings = WarnOnce::new("stage");
 
-        assert_eq!(payload, json!({ "sensor": "t", "device": { "id": 1 } }));
+        assert_eq!(
+            group_by.key_payload(&key, &mut warnings),
+            json!({ "sensor": "t", "device": { "id": 1 } })
+        );
+        assert!(!warnings.has_warned("write-key"));
         assert_eq!(
             group_by.top_level_fields().collect::<Vec<_>>(),
             vec!["sensor", "device"]
         );
+    }
+
+    #[test]
+    fn warns_once_past_the_key_count() {
+        let group_by = GroupBy::new(vec![]).unwrap();
+        let mut warnings = WarnOnce::new("stage");
+        group_by.check_key_count(KEY_COUNT_WARNING - 1, &mut warnings);
+        assert!(!warnings.has_warned("key-count"));
+        group_by.check_key_count(KEY_COUNT_WARNING, &mut warnings);
+        assert!(warnings.has_warned("key-count"));
     }
 
     #[test]

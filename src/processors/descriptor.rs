@@ -253,6 +253,15 @@ pub fn processor_descriptors() -> Vec<ProcessorDescriptor> {
             fields: window_fields(),
         },
         ProcessorDescriptor {
+            type_name: "reduce".to_string(),
+            category: ProcessorCategory::Aggregator,
+            display_name: "Reduce".to_string(),
+            description:
+                "Keeps a state per key, updates it with expressions and outputs it with every message."
+                    .to_string(),
+            fields: reduce_fields(),
+        },
+        ProcessorDescriptor {
             type_name: "console".to_string(),
             category: ProcessorCategory::Output,
             display_name: "Console Output".to_string(),
@@ -702,6 +711,116 @@ fn window_aggregate_schema() -> SchemaSpec {
     }
 }
 
+fn reduce_fields() -> Vec<FieldSpec> {
+    vec![
+        FieldSpec {
+            renderer: Some("key_value".to_string()),
+            ..field(
+                "initial",
+                "Initial state",
+                FieldKind::Object,
+                true,
+                Some("{ messages = 0 }"),
+                &[],
+                "The state at the start and after a reset: plain names and a number, text or true/false each. Expressions read them as state.<name>.",
+            )
+        },
+        field_with_schema(
+            field(
+                "update",
+                "Updates",
+                FieldKind::Array,
+                true,
+                Some("[{ field = \"messages\", expression = \"state.messages + 1\" }]"),
+                &[],
+                "With every message, each state value's new value, optionally only when a condition holds. All read the state from before the message.",
+            ),
+            SchemaSpec::Array {
+                item: Box::new(reduce_update_schema()),
+            },
+            Some("object_list"),
+        ),
+        field_with_schema(
+            field(
+                "reset_when",
+                "Reset when",
+                FieldKind::Object,
+                false,
+                None,
+                &[],
+                "Puts the state back to the initial one when this holds, before the updates.",
+            ),
+            condition_schema(),
+            Some("condition"),
+        ),
+        field_with_schema(
+            field(
+                "group_by",
+                "Group by",
+                FieldKind::Array,
+                false,
+                Some("[]"),
+                &[],
+                "Field paths that split the stream into separate states, e.g. sensor.",
+            ),
+            SchemaSpec::Array {
+                item: Box::new(SchemaSpec::JsonValue),
+            },
+            Some("string_array"),
+        ),
+        field(
+            "include_message",
+            "Include message",
+            FieldKind::Boolean,
+            false,
+            Some("false"),
+            &[],
+            "Also output the message's fields, with the state laid over them.",
+        ),
+    ]
+}
+
+fn reduce_update_schema() -> SchemaSpec {
+    SchemaSpec::Object {
+        fields: vec![
+            field(
+                "field",
+                "State value",
+                FieldKind::String,
+                true,
+                None,
+                &[],
+                "Name of the state value to set (one of the initial state's).",
+            ),
+            FieldSpec {
+                renderer: Some("expression".to_string()),
+                ..field(
+                    "expression",
+                    "Expression",
+                    FieldKind::String,
+                    true,
+                    None,
+                    &[],
+                    "Its new value. Reads the message's fields, state.<name>, prev.<field> (the previous message), msg.<field>, count and dt (seconds since prev).",
+                )
+            },
+            field_with_schema(
+                field(
+                    "when",
+                    "When",
+                    FieldKind::Object,
+                    false,
+                    None,
+                    &[],
+                    "Only update when this holds.",
+                ),
+                condition_schema(),
+                Some("condition"),
+            ),
+        ],
+    }
+}
+
 fn rule_schema() -> SchemaSpec {
     SchemaSpec::Object {
         fields: vec![
@@ -1026,6 +1145,7 @@ mod tests {
                 "fusion",
                 "mqtt_pub",
                 "mqtt_sub",
+                "reduce",
                 "rule",
                 "simulated",
                 "tcp_input",
@@ -1241,6 +1361,41 @@ mod tests {
                 .values
                 .contains(&"sum".to_string())
         );
+    }
+
+    #[test]
+    fn reduce_descriptor_uses_the_condition_and_key_value_renderers() {
+        let descriptors = processor_descriptors();
+        let reduce = descriptors
+            .iter()
+            .find(|descriptor| descriptor.type_name == "reduce")
+            .expect("reduce descriptor exists");
+        let field = |key: &str| {
+            reduce
+                .fields
+                .iter()
+                .find(|field| field.key == key)
+                .unwrap_or_else(|| panic!("{key} field exists"))
+        };
+
+        assert_eq!(field("initial").renderer.as_deref(), Some("key_value"));
+        assert!(field("initial").required);
+        assert_eq!(field("reset_when").renderer.as_deref(), Some("condition"));
+        assert_eq!(field("reset_when").schema, Some(condition_schema()));
+        assert_eq!(field("group_by").renderer.as_deref(), Some("string_array"));
+
+        let update = field("update");
+        assert_eq!(update.renderer.as_deref(), Some("object_list"));
+        let Some(SchemaSpec::Array { item }) = &update.schema else {
+            panic!("update is an array");
+        };
+        let SchemaSpec::Object { fields } = item.as_ref() else {
+            panic!("updates are objects");
+        };
+        let keys: Vec<&str> = fields.iter().map(|field| field.key.as_str()).collect();
+        assert_eq!(keys, vec!["field", "expression", "when"]);
+        assert_eq!(fields[2].renderer.as_deref(), Some("condition"));
+        assert!(!fields[2].required);
     }
 
     #[test]

@@ -43,9 +43,6 @@ use std::time::{Duration, UNIX_EPOCH};
 /// a wait for windows).
 pub const DEFAULT_LATENESS_MS: u64 = 250;
 
-/// Past this many keys, warn: `group_by` is probably on a field with too many values.
-const KEY_COUNT_WARNING: usize = 10_000;
-
 /// With `emit_empty`, a watermark jump over more windows than this (e.g. after the computer slept)
 /// skips the empty ones instead of outputting each.
 const MAX_EMPTY_WINDOWS_PER_JUMP: u64 = 100;
@@ -197,19 +194,15 @@ impl WindowStage {
             });
             return;
         }
-        let Some(key) = self.group_by.key_of(&message.payload) else {
-            self.warnings.warn("missing-key", || {
-                format!(
-                    "messages without the group_by fields ({}) are skipped",
-                    self.group_by.paths().join(", ")
-                )
-            });
+        let Some(key) = self
+            .group_by
+            .key_or_warn(&message.payload, &mut self.warnings)
+        else {
             return;
         };
-        if !self.keys.contains_key(&key.id) && self.keys.len() >= KEY_COUNT_WARNING {
-            self.warnings.warn("key-count", || {
-                format!("more than {KEY_COUNT_WARNING} keys: is group_by on the right field?")
-            });
+        if !self.keys.contains_key(&key.id) {
+            self.group_by
+                .check_key_count(self.keys.len(), &mut self.warnings);
         }
 
         let item = self.aggregator.item(at_ms, &message.payload);

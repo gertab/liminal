@@ -700,6 +700,43 @@ description = "Default"
     }
 
     #[test]
+    fn adds_reduce_aggregator_with_descriptor_defaults() {
+        let mut document = parse_document(
+            r#"
+[pipelines.default_pipeline]
+description = "Default"
+"#,
+        );
+        let descriptor = processor_descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.type_name == "reduce")
+            .expect("reduce descriptor exists");
+
+        add_node_to_document(
+            &mut document,
+            &descriptor,
+            "counter",
+            Some("default_pipeline"),
+        )
+        .expect("reduce stage is added");
+
+        let edited = document.to_string();
+        assert!(edited.contains("type = \"reduce\""));
+        assert!(!edited.contains("reset_when"));
+
+        let config = toml::from_str::<Config>(&edited).expect("edited config parses");
+        let stage = config
+            .pipelines
+            .get("default_pipeline")
+            .and_then(|pipeline| pipeline.stages.get("counter"))
+            .expect("new reduce stage exists")
+            .clone();
+        let parameters = stage.parameters.clone().expect("reduce has parameters");
+        assert_eq!(parameters["initial"], serde_json::json!({ "messages": 0 }));
+        create_processor("reduce", stage).expect("descriptor-created reduce stage can be built");
+    }
+
+    #[test]
     fn popcorn_example_processors_are_constructible() {
         let config = load_config(Path::new("../../config/examples/config_popcorn.toml"))
             .expect("popcorn example loads");

@@ -1833,6 +1833,73 @@ button {
   line-height: 1.45;
 }
 
+/* Expressions and conditions take a whole object-list row; the row's buttons move below its fields */
+.object-list-field.wide {
+  grid-column: 1 / -1;
+}
+
+.object-list-row:has(.object-list-field.wide) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.object-list-row:has(.object-list-field.wide) .object-list-row-actions {
+  justify-self: end;
+  padding-bottom: 0;
+}
+
+.object-list-field.wide > input[type="text"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.object-list-condition {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+
+.object-list-condition .rule-condition {
+  padding: 0;
+}
+
+.object-list-condition button.icon-button,
+.key-value-row button.icon-button {
+  margin-bottom: 3px;
+}
+
+.object-list-field > .compact-add-button {
+  align-self: flex-start;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #326b61;
+  border-radius: 6px;
+  color: #bdf7ef;
+  font-size: 11px;
+  font-weight: 900;
+  background: #132325;
+}
+
+/* Key/value editor (renderer = "key_value") */
+.key-value-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid #1d2d31;
+}
+
+.key-value-row input {
+  min-width: 0;
+  height: 32px;
+  padding: 6px 8px;
+  border: 1px solid #263438;
+  border-radius: 6px;
+  color: #eefbf8;
+  background: #0d1416;
+}
+
 .rule-editor {
   display: flex;
   min-width: 0;

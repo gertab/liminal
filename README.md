@@ -82,6 +82,7 @@ Liminal uses a message-passing architecture where:
 **Aggregator Processors:**
 - **`fusion`**: Combine messages from several inputs into one
 - **`window`**: Aggregate the messages of a time span, or the last N messages, per key (count, avg, min, max, std, …)
+- **`reduce`**: Keep a state per key, updated by expressions with every message (totals, odometers, alarms, …)
 
 **Output Processors:**
 - **`console`**: Display messages to stdout
@@ -210,6 +211,58 @@ e.g. `{"sensor": "s1", "window_start": 1762790000000, "window_end": 176279001000
   for `last_n`), marks left-over ones as not used, with a button to remove them, and edits `aggregates` as a list.
 
 See [config/examples/config_window.toml](config/examples/config_window.toml).
+
+### Reduce
+
+A `reduce` stage keeps a small state and outputs it with every message. Each message updates the state through
+expressions. It covers what builds up over the whole stream, or since an event, rather than over a window: totals,
+an odometer, a running maximum, a smoothed value, an alarm that stays on until the value drops back.
+
+```toml
+# Positions and actions of mobile machines: the distance each one drove, and its top speed, since its last place.
+[pipelines.fleet.stages.odometer]
+type = "reduce"
+inputs = ["moves"]
+output = "distance"
+
+[pipelines.fleet.stages.odometer.parameters]
+group_by = ["entity"]
+initial = { distance_m = 0.0, top_speed = 0.0 }
+update = [
+  { field = "distance_m", expression = "state.distance_m + math::hypot(x - prev.x, y - prev.y)",
+    when = { field_path = "kind", operation = "==", value = "position" } },
+  { field = "top_speed", expression = "max(state.top_speed, speed_mps)",
+    when = { field_path = "kind", operation = "==", value = "position" } },
+]
+reset_when = { field_path = "action", operation = "==", value = "place" }
+```
+
+Each output is the `group_by` fields and the state, e.g. `{"entity": "mm1", "distance_m": 20.11, "top_speed": 1.2}`.
+
+- **`initial`** is the state at the start, and after a reset: plain names with a number, text or true/false each.
+- **`update`** sets state values with expressions (the same expressions as `compute_field`), optionally only `when` a
+  condition holds (the same conditions as rules). A message's updates all read the state from before the message, so
+  their order doesn't matter. Results can be numbers, true/false or text. An integer state value stays an integer
+  while only integers are added to it (`initial = { n = 0 }` and `state.n + 1`).
+- **Expressions and conditions read** the message's fields as they are (`x`, `kind`), plus:
+  - `state.<name>`: the state before this message.
+  - `prev.<field>`: the previous message of the same key, whatever its kind. For the first message, it is the
+    message itself, so a difference such as `x - prev.x` is 0. If some messages lack the fields an expression reads
+    from `prev`, drop them with a `rule` before the stage (above, both positions and actions have `x` and `y`).
+  - `count`: the messages so far (of the key), this one included: `count == 1` on the first.
+  - `dt`: the seconds since the previous message, in event time (see [Timing Semantics](#timing-semantics)).
+  - `msg.<field>`: the message, for a field these names hide (e.g. a message field called `state`).
+- **`reset_when`** puts the state back to `initial` before the updates. The message that resets counts as the first
+  again.
+- **Errors:** an update that fails (e.g. a field the message lacks) keeps its old value, with a warning. A mistake in
+  an expression's syntax, an update of a value not in `initial`, or an unknown parameter is an error when the config
+  loads.
+- `include_message = true` also outputs the message's fields, with the state laid over them. The output keeps the
+  message's event time.
+- **In the GUI,** `initial` is edited as name/value rows, `update` as a list with an optional condition per update,
+  and `reset_when` as a condition.
+
+See [config/examples/config_reduce.toml](config/examples/config_reduce.toml).
 
 ## Advanced Features
 

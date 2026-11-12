@@ -5,7 +5,7 @@ use crate::processors::common::field_utils::FieldUtils;
 use crate::processors::common::group_key::{GroupBy, GroupKey};
 use crate::processors::common::warn_once::WarnOnce;
 
-use serde_json::{Map, Number, Value};
+use serde_json::{Number, Value};
 use std::collections::HashSet;
 
 /// A message held in a window: its event time and the values of the aggregated fields only.
@@ -71,12 +71,7 @@ impl Aggregator {
         end_ms: u64,
         warnings: &mut WarnOnce,
     ) -> Value {
-        let mut payload = Value::Object(Map::new());
-        if let Err(error) = group_by.write_key(key, &mut payload) {
-            warnings.warn("write-key", || {
-                format!("could not write the group_by fields: {}", error)
-            });
-        }
+        let mut payload = group_by.key_payload(key, warnings);
         if let Value::Object(map) = &mut payload {
             map.insert(WINDOW_START.to_string(), Value::from(start_ms));
             map.insert(WINDOW_END.to_string(), Value::from(end_ms));
