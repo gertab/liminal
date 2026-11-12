@@ -737,6 +737,62 @@ description = "Default"
     }
 
     #[test]
+    fn adds_watchdog_and_saves_timeouts_with_dotted_keys() {
+        let mut document = parse_document(
+            r#"
+[inputs.shopfloor]
+type = "simulated"
+output = "readings"
+
+[pipelines.health]
+description = "Health"
+"#,
+        );
+        let descriptor = processor_descriptors()
+            .into_iter()
+            .find(|descriptor| descriptor.type_name == "watchdog")
+            .expect("watchdog descriptor exists");
+        add_node_to_document(&mut document, &descriptor, "alive", Some("health"))
+            .expect("watchdog stage is added");
+        add_input_channel(&mut document, "pipeline:health.stage:alive", "readings")
+            .expect("the stage reads the readings");
+
+        // As the GUI saves group_by and timeouts: sensor ids contain dots.
+        update_json_parameter(
+            &mut document,
+            "pipeline:health.stage:alive",
+            "group_by",
+            &serde_json::json!(["sensor"]),
+        )
+        .expect("group_by is saved");
+        update_json_parameter(
+            &mut document,
+            "pipeline:health.stage:alive",
+            "timeouts",
+            &serde_json::json!({ "machine2.temperature": 3000 }),
+        )
+        .expect("timeouts are saved");
+
+        let edited = document.to_string();
+        assert!(edited.contains("type = \"watchdog\""));
+        assert!(
+            edited.contains("\"machine2.temperature\" = 3000"),
+            "{edited}"
+        );
+
+        let config = toml::from_str::<Config>(&edited).expect("edited config parses");
+        let stage = config.pipelines["health"].stages["alive"].clone();
+        let parameters = stage.parameters.clone().expect("watchdog has parameters");
+        assert_eq!(parameters["timeout_ms"], serde_json::json!(5000));
+        assert_eq!(
+            parameters["timeouts"],
+            serde_json::json!({ "machine2.temperature": 3000 })
+        );
+        create_processor("watchdog", stage)
+            .expect("descriptor-created watchdog stage can be built");
+    }
+
+    #[test]
     fn popcorn_example_processors_are_constructible() {
         let config = load_config(Path::new("../../config/examples/config_popcorn.toml"))
             .expect("popcorn example loads");

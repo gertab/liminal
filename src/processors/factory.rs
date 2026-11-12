@@ -38,7 +38,7 @@
 
 use crate::processors::{
     Processor,
-    aggregator::{FusionStage, ReduceStage, WindowStage},
+    aggregator::{FusionStage, ReduceStage, WatchdogStage, WindowStage},
     input::{MqttInputProcessor, SimulatedSignalProcessor, TcpInputProcessor},
     output::{
         ConsoleOutputProcessor, FileOutputProcessor, MqttOutputProcessor, TcpOutputProcessor,
@@ -175,6 +175,7 @@ pub fn register_processor(name: &str, constructor: ProcessorConstructor) {
 /// - `"fusion"` - Combines data from multiple inputs
 /// - `"window"` - Aggregates the messages of a time span or the last N messages, per key
 /// - `"reduce"` - Keeps a state per key, updated by expressions with every message
+/// - `"watchdog"` - Alerts when an input, or a key within it, has been silent too long
 /// - `"console"` - Outputs received messages to console
 /// - `"file"` - Outputs received messages to file
 /// - `"mqtt_sub"` - Subscribes to MQTT topics for input
@@ -195,6 +196,7 @@ fn ensure_default_processors() {
         register_processor("fusion", Box::new(FusionStage::new));
         register_processor("window", Box::new(WindowStage::new));
         register_processor("reduce", Box::new(ReduceStage::new));
+        register_processor("watchdog", Box::new(WatchdogStage::new));
         register_processor("console", Box::new(ConsoleOutputProcessor::new));
         register_processor("file", Box::new(FileOutputProcessor::new));
 

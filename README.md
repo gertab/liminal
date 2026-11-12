@@ -83,6 +83,7 @@ Liminal uses a message-passing architecture where:
 - **`fusion`**: Combine messages from several inputs into one
 - **`window`**: Aggregate the messages of a time span, or the last N messages, per key (count, avg, min, max, std, …)
 - **`reduce`**: Keep a state per key, updated by expressions with every message (totals, odometers, alarms, …)
+- **`watchdog`**: Alert when an input, or a key within it (e.g. a sensor), has been silent too long
 
 **Output Processors:**
 - **`console`**: Display messages to stdout
@@ -263,6 +264,50 @@ Each output is the `group_by` fields and the state, e.g. `{"entity": "mm1", "dis
   and `reset_when` as a condition.
 
 See [config/examples/config_reduce.toml](config/examples/config_reduce.toml).
+
+### Watchdog
+
+A `watchdog` stage outputs an alert when a sensor (or any key) has been silent for longer than its timeout, and,
+with `emit_recovered`, a message when it reports again. Nothing else in a pipeline notices missing data: a dead sensor
+just stops appearing.
+
+```toml
+[pipelines.health.stages.sensors_alive]
+type = "watchdog"
+inputs = ["sensor_readings"]
+output = "silence_alerts"
+
+[pipelines.health.stages.sensors_alive.parameters]
+group_by = ["sensor"]
+timeout_ms = 1500
+timeouts = { "machine2.temperature" = 3000 }        # sensors may have different rates
+expected_keys = ["mm1.vibration", "mm1.lidar", "machine2.temperature"]
+emit_recovered = true
+```
+
+Alerts look like this:
+
+```json
+{"sensor": "mm1.vibration", "status": "silent", "timeout_ms": 1500, "silent_ms": 1500, "last_seen": 1762790000000}
+{"sensor": "mm1.vibration", "status": "recovered", "timeout_ms": 1500, "silent_ms": 10500, "last_seen": 1762790010500}
+```
+
+- **Keys** are the values of the `group_by` field: here each sensor has its own timer. Without `group_by`, each
+  input of the stage is watched instead, with `"input": "<channel>"` in the alerts.
+- **`timeout_ms`** applies to every key; **`timeouts`** gives a key its own (by its `group_by` value, or by input name
+  without `group_by`).
+- **`expected_keys`** are watched from the start, so a sensor that never reports is caught too (its alert has no
+  `last_seen`). Without `group_by`, every input is watched from the start.
+- **One alert per silence.** `silent_ms` is how long the key had been silent when the alert was raised; in a
+  `recovered` message, how long the gap lasted. `last_seen` is when the key's last message came (epoch ms).
+- **Time:** live, silence is the time since a key's last message *arrived*. With a `punctuated` or `heuristic`
+  `watermark_strategy` in the stage's `timing` block, it's measured in event time instead, so a recording can be
+  checked at any speed, e.g. `watermark_strategy = { type = "punctuated", field = "ts" }` with `max_lateness_ms = 0`
+  (set it: Liminal's default lateness is 30 s). Event time only moves with messages: it catches a sensor that goes
+  quiet while others report, not a stream that stops altogether.
+- **In the GUI,** `timeouts` is edited as name/value rows and `expected_keys` as a list.
+
+See [config/examples/config_watchdog.toml](config/examples/config_watchdog.toml).
 
 ## Advanced Features
 

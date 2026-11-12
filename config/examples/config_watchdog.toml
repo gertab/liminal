@@ -1,0 +1,79 @@
+# Watchdog: alerts for sensors that go silent
+#
+# Sensor a reports every second and sensor b every 4 seconds; sensor c is expected but never reports. A rule names
+# each reading, and a watchdog outputs an alert when a sensor has been silent longer than its timeout: 1.5 s, or 5 s
+# for the slower b. So the only alert is for c, about 1.5 s after the start.
+#
+#   cargo run -- --config config/examples/config_watchdog.toml
+#
+# Remove b's entry in `timeouts` to see b reported silent 1.5 s after each reading, and recovered at the next one.
+
+[inputs.sensor_a]
+type = "simulated"
+output = "readings_a"
+parameters = { interval_ms = 1000, distribution = "uniform", min_value = 20.0, max_value = 22.0 }
+
+[inputs.sensor_b]
+type = "simulated"
+output = "readings_b"
+parameters = { interval_ms = 4000, distribution = "uniform", min_value = 40.0, max_value = 50.0 }
+
+[inputs.sensor_d]
+type = "simulated"
+output = "sensor_d_data"
+parameters = { interval_ms = 1000, distribution = "uniform", min_value = 0.0, max_value = 100.0 }
+
+[pipelines.health]
+description = "Alerts for silent sensors"
+
+[pipelines.health.stages.name_a]
+type = "rule"
+inputs = ["readings_a"]
+output = "named_a"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "set_field", field_path = "sensor", value = "a" }] }] }
+
+[pipelines.health.stages.name_b]
+type = "rule"
+inputs = ["readings_b"]
+output = "named_b"
+parameters = { rules = [{ condition = { operation = "always" }, actions = [{ type = "set_field", field_path = "sensor", value = "b" }] }] }
+
+# One timer per sensor (group_by). Each alert has the sensor, status ("silent" or "recovered"), timeout_ms,
+# silent_ms and last_seen (epoch ms, missing for a sensor never seen).
+[pipelines.health.stages.sensors_alive]
+type = "watchdog"
+inputs = ["named_a", "named_b"]
+output = "silence_alerts"
+
+[pipelines.health.stages.sensors_alive.parameters]
+group_by = ["sensor"]
+timeout_ms = 1500
+timeouts = { b = 5000 }
+expected_keys = ["a", "b", "c"]
+emit_recovered = true
+
+[pipelines.health.stages.rule_d]
+type = "rule"
+inputs = ["sensor_d_data"]
+output = "rule_d_data"
+
+[pipelines.health.stages.rule_d.parameters ]
+rules = [{ actions = [{ field_path = "sensor", type = "set_field", value = "d" }], condition = { operation = "always" }, else_actions = [] }]
+error_strategy = "continue" 
+
+[pipelines.health.stages.watchdog_d]
+type = "watchdog"
+inputs = ["rule_d_data"]
+output = "watchdog_d_data"
+parameters = { timeout_ms = 5000, group_by = [], expected_keys = ["d"], emit_recovered = false }
+
+# Without group_by, each input of the stage is watched instead (here named_a and named_b), and `timeouts` names
+# inputs: timeouts = { named_b = 5000 }
+
+[outputs.console]
+type = "console"
+inputs = ["silence_alerts"]
+
+[outputs.console_2]
+type = "console"
+inputs = ["watchdog_d_data"]

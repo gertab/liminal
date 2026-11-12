@@ -262,6 +262,14 @@ pub fn processor_descriptors() -> Vec<ProcessorDescriptor> {
             fields: reduce_fields(),
         },
         ProcessorDescriptor {
+            type_name: "watchdog".to_string(),
+            category: ProcessorCategory::Aggregator,
+            display_name: "Watchdog".to_string(),
+            description: "Alerts when an input, or a key within it, has been silent too long."
+                .to_string(),
+            fields: watchdog_fields(),
+        },
+        ProcessorDescriptor {
             type_name: "console".to_string(),
             category: ProcessorCategory::Output,
             display_name: "Console Output".to_string(),
@@ -821,6 +829,70 @@ fn reduce_update_schema() -> SchemaSpec {
     }
 }
 
+fn watchdog_fields() -> Vec<FieldSpec> {
+    let string_array = || SchemaSpec::Array {
+        item: Box::new(SchemaSpec::JsonValue),
+    };
+    vec![
+        field(
+            "timeout_ms",
+            "Timeout (ms)",
+            FieldKind::Integer,
+            true,
+            Some("5000"),
+            &[],
+            "How long a key can be silent before an alert.",
+        ),
+        FieldSpec {
+            renderer: Some("key_value".to_string()),
+            ..field(
+                "timeouts",
+                "Timeouts per key",
+                FieldKind::Object,
+                false,
+                None,
+                &[],
+                "A key's own timeout in ms, e.g. machine2.temperature = 3000 for a slower sensor. Keys are group_by values, or input names without group_by.",
+            )
+        },
+        field_with_schema(
+            field(
+                "group_by",
+                "Group by",
+                FieldKind::Array,
+                false,
+                Some("[]"),
+                &[],
+                "Field whose values are watched separately, e.g. sensor. Without it, each input is watched.",
+            ),
+            string_array(),
+            Some("string_array"),
+        ),
+        field_with_schema(
+            field(
+                "expected_keys",
+                "Expected keys",
+                FieldKind::Array,
+                false,
+                Some("[]"),
+                &[],
+                "Keys watched from the start, so one that never reports is caught (needs group_by; without it, every input is).",
+            ),
+            string_array(),
+            Some("string_array"),
+        ),
+        field(
+            "emit_recovered",
+            "Emit recovered",
+            FieldKind::Boolean,
+            false,
+            Some("false"),
+            &[],
+            "Also output a message when a silent key reports again.",
+        ),
+    ]
+}
+
 fn rule_schema() -> SchemaSpec {
     SchemaSpec::Object {
         fields: vec![
@@ -1150,8 +1222,37 @@ mod tests {
                 "simulated",
                 "tcp_input",
                 "tcp_output",
+                "watchdog",
                 "window",
             ]
+        );
+    }
+
+    #[test]
+    fn watchdog_descriptor_reuses_the_key_value_and_list_editors() {
+        let descriptors = processor_descriptors();
+        let watchdog = descriptors
+            .iter()
+            .find(|descriptor| descriptor.type_name == "watchdog")
+            .expect("watchdog descriptor exists");
+        let field = |key: &str| {
+            watchdog
+                .fields
+                .iter()
+                .find(|field| field.key == key)
+                .unwrap_or_else(|| panic!("{key} field exists"))
+        };
+
+        assert!(field("timeout_ms").required);
+        assert_eq!(field("timeouts").renderer.as_deref(), Some("key_value"));
+        assert_eq!(field("group_by").renderer.as_deref(), Some("string_array"));
+        assert_eq!(
+            field("expected_keys").renderer.as_deref(),
+            Some("string_array")
+        );
+        assert_eq!(
+            field("emit_recovered").default_value.as_deref(),
+            Some("false")
         );
     }
 
