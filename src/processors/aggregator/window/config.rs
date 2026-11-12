@@ -54,6 +54,8 @@ pub enum AggregateFunction {
     Max,
     Spread,
     Std,
+    First,
+    Last,
 }
 
 impl AggregateFunction {
@@ -67,6 +69,8 @@ impl AggregateFunction {
             AggregateFunction::Max => "max",
             AggregateFunction::Spread => "spread",
             AggregateFunction::Std => "std",
+            AggregateFunction::First => "first",
+            AggregateFunction::Last => "last",
         }
     }
 }

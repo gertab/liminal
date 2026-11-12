@@ -1,0 +1,141 @@
+# Scenario: the deflasher is ready when its temperature has settled
+#
+# MM1 may place a part in the deflasher only once its temperature has stayed within ±0.3 °C for 2 min. A single
+# reading of 45.0 °C doesn't say whether the temperature is still settling or has been steady for a while: a window
+# does. Here, settled means the spread (max - min) over the last 2 "minutes" is at most 0.6 °C, with the window full.
+#
+# A sliding window outputs the deflasher's state with every reading. A reduce combines it with the places at the
+# deflasher: it remembers the latest state, and flags a place made while not settled. The console shows the
+# readiness changes and the early places.
+#
+# Until the window has filled (the first 2 "minutes" of data), the temperature hasn't been seen steady yet, so it
+# counts as not settled: a place then is flagged too.
+#
+# Demo time scale: a 10 s window instead of 2 min (size_ms = 120000 for real time, and readings < 100).
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
+#                   (or deflasher_heat_spike)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_deflasher_settled.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.deflasher]
+description = "Deflasher readiness, and places made too early"
+
+# The deflasher's temperature readings.
+[pipelines.deflasher.stages.temperature]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "deflasher_temperature"
+
+[[pipelines.deflasher.stages.temperature.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.deflasher.stages.temperature.parameters.rules]]
+condition = { field_path = "sensor", operation = "not_equals", value = "deflasher.temperature" }
+actions = [{ type = "drop_message" }]
+
+# The last 2 "minutes", with every reading.
+[pipelines.deflasher.stages.recent]
+type = "window"
+inputs = ["deflasher_temperature"]
+output = "deflasher_recent"
+
+[pipelines.deflasher.stages.recent.parameters]
+kind = "sliding"
+size_ms = 10000
+emit = "every_message"
+group_by = ["sensor"]
+aggregates = [
+  { function = "spread", field = "value", as = "spread" },
+  { function = "last", field = "value", as = "temperature" },
+  { function = "count", as = "readings" },
+]
+
+# Settled: within 0.6 °C (±0.3) over a full window.
+[pipelines.deflasher.stages.settled]
+type = "rule"
+inputs = ["deflasher_recent"]
+output = "deflasher_state"
+
+[[pipelines.deflasher.stages.settled.parameters.rules]]
+condition = { field_path = "spread", operation = "<=", value = 0.6 }
+actions = [{ type = "set_field", field_path = "settled", value = true }]
+else_actions = [{ type = "set_field", field_path = "settled", value = false }]
+
+[[pipelines.deflasher.stages.settled.parameters.rules]]
+condition = { field_path = "readings", operation = "<", value = 9 }
+actions = [{ type = "set_field", field_path = "settled", value = false }]
+
+# Places at the deflasher.
+[pipelines.deflasher.stages.places]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "deflasher_places"
+
+[[pipelines.deflasher.stages.places.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "action" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.deflasher.stages.places.parameters.rules]]
+condition = { field_path = "action", operation = "not_equals", value = "place" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.deflasher.stages.places.parameters.rules]]
+condition = { field_path = "at", operation = "not_equals", value = "deflasher" }
+actions = [{ type = "drop_message" }]
+
+# The latest state, a place while not settled (early), and whether readiness changed.
+[pipelines.deflasher.stages.readiness]
+type = "reduce"
+inputs = ["deflasher_state", "deflasher_places"]
+output = "deflasher_readiness"
+
+[pipelines.deflasher.stages.readiness.parameters]
+initial = { settled = false, early_place = false, changed = false }
+update = [
+  { field = "settled", expression = "settled", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
+  { field = "changed", expression = "settled != state.settled", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
+  { field = "changed", expression = "false", when = { field_path = "action", operation = "equals", value = "place" } },
+  { field = "early_place", expression = "!state.settled", when = { field_path = "action", operation = "equals", value = "place" } },
+  { field = "early_place", expression = "false", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
+]
+include_message = true
+
+# Only the readiness changes and the early places.
+[pipelines.deflasher.stages.notable]
+type = "rule"
+inputs = ["deflasher_readiness"]
+output = "deflasher_alerts"
+
+[[pipelines.deflasher.stages.notable.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "set_field", field_path = "keep", value = false }]
+
+[[pipelines.deflasher.stages.notable.parameters.rules]]
+condition = { field_path = "changed", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "keep", value = true }]
+
+[[pipelines.deflasher.stages.notable.parameters.rules]]
+condition = { field_path = "early_place", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "keep", value = true }]
+
+[[pipelines.deflasher.stages.notable.parameters.rules]]
+condition = { field_path = "keep", operation = "equals", value = false }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.deflasher.stages.notable.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "remove_field", field_path = "keep" }]
+
+[outputs.console]
+type = "console"
+inputs = ["deflasher_alerts"]

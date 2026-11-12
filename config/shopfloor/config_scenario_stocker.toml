@@ -1,0 +1,94 @@
+# Scenario: stocker fill level
+#
+# The stocker's fill level follows the actions there: a place adds a part, a pick removes one. A reduce keeps the
+# level and flags:
+#   - full: a place brings it to its capacity (4 parts);
+#   - overflow: a place on a full stocker;
+#   - empty: a pick takes its last part;
+#   - underflow: a pick from an empty stocker (the count was wrong, or a part was missing).
+#
+# The level starts at 2, as the simulator's stocker does, so start this config before the scene (or change
+# `initial`). The capacity is the 4 in the expressions.
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
+#                   (or stocker_full_empty)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_stocker.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.stocker]
+description = "Stocker fill level, full and empty"
+
+# Actions at the stocker.
+[pipelines.stocker.stages.actions]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "stocker_actions"
+
+[[pipelines.stocker.stages.actions.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "action" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.stocker.stages.actions.parameters.rules]]
+condition = { field_path = "at", operation = "not_equals", value = "stocker" }
+actions = [{ type = "drop_message" }]
+
+# One state per machine (group_by at), so the same stage could follow several stockers.
+[pipelines.stocker.stages.level]
+type = "reduce"
+inputs = ["stocker_actions"]
+output = "stocker_level"
+
+[pipelines.stocker.stages.level.parameters]
+group_by = ["at"]
+include_message = true
+initial = { level = 2, full = false, overflow = false, empty = false, underflow = false }
+update = [
+  { field = "level", expression = "state.level + 1", when = { field_path = "action", operation = "equals", value = "place" } },
+  { field = "level", expression = "max(state.level - 1, 0)", when = { field_path = "action", operation = "equals", value = "pick" } },
+  { field = "full", expression = "action == \"place\" && state.level + 1 == 4" },
+  { field = "overflow", expression = "action == \"place\" && state.level >= 4" },
+  { field = "empty", expression = "action == \"pick\" && state.level == 1" },
+  { field = "underflow", expression = "action == \"pick\" && state.level <= 0" },
+]
+
+# An alert for each flag; nothing otherwise.
+[pipelines.stocker.stages.alerts]
+type = "rule"
+inputs = ["stocker_level"]
+output = "stocker_alerts"
+
+[[pipelines.stocker.stages.alerts.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "set_field", field_path = "alert", value = "" }]
+
+[[pipelines.stocker.stages.alerts.parameters.rules]]
+condition = { field_path = "full", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "alert", value = "full" }]
+
+[[pipelines.stocker.stages.alerts.parameters.rules]]
+condition = { field_path = "overflow", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "alert", value = "overflow: a place on a full stocker" }]
+
+[[pipelines.stocker.stages.alerts.parameters.rules]]
+condition = { field_path = "empty", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "alert", value = "empty" }]
+
+[[pipelines.stocker.stages.alerts.parameters.rules]]
+condition = { field_path = "underflow", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "alert", value = "underflow: a pick from an empty stocker" }]
+
+[[pipelines.stocker.stages.alerts.parameters.rules]]
+condition = { field_path = "alert", operation = "equals", value = "" }
+actions = [{ type = "drop_message" }]
+
+[outputs.console]
+type = "console"
+inputs = ["stocker_alerts"]

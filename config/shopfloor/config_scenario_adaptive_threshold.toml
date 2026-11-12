@@ -1,0 +1,84 @@
+# Scenario: adaptive thresholds (condition monitoring)
+#
+# Instead of one fixed limit for every sensor, each vibration sensor is checked against its own recent behaviour:
+# an alert when a reading is above the average + 3 standard deviations of that sensor's recent readings. For example,
+# MM2 vibration 1 averages 0.10 g with σ = 0.01 g, so its limit is about 0.13 g: a reading of 0.14 g is unusual for
+# it, though far below any fixed alarm level that would suit all the sensors.
+#
+# A sliding window per sensor outputs, with every reading, the window's average, standard deviation and newest value
+# (last). The first 20 readings are a warm-up. The window includes the newest reading itself, which raises σ a
+# little: with 40 readings in the window, a single reading needs to be about 3.4 σ out to show.
+#
+# Demo time scale: a 20 s baseline. For real monitoring, a longer one (e.g. size_ms = 3600000, an hour).
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or vibration_anomaly)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_adaptive_threshold.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.adaptive_threshold]
+description = "Each vibration sensor against its own recent readings"
+
+# Vibration readings only.
+[pipelines.adaptive_threshold.stages.vibration]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "vibration"
+
+[[pipelines.adaptive_threshold.stages.vibration.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.adaptive_threshold.stages.vibration.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "vibration" }
+actions = [{ type = "drop_message" }]
+
+# The last 20 s of each sensor, with every reading.
+[pipelines.adaptive_threshold.stages.baseline]
+type = "window"
+inputs = ["vibration"]
+output = "baselines"
+
+[pipelines.adaptive_threshold.stages.baseline.parameters]
+kind = "sliding"
+size_ms = 20000
+emit = "every_message"
+group_by = ["sensor"]
+aggregates = [
+  { function = "avg", field = "value", as = "avg" },
+  { function = "std", field = "value", as = "std" },
+  { function = "last", field = "value", as = "value" },
+  { function = "count", as = "readings" },
+]
+
+# Over avg + 3σ: an alert. A warm-up of 20 readings first.
+[pipelines.adaptive_threshold.stages.check]
+type = "rule"
+inputs = ["baselines"]
+output = "anomalies"
+
+[[pipelines.adaptive_threshold.stages.check.parameters.rules]]
+condition = { field_path = "readings", operation = "<", value = 20 }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.adaptive_threshold.stages.check.parameters.rules]]
+condition = { operation = "always" }
+actions = [
+  { type = "compute_field", field_path = "limit", expression = "avg + 3.0 * std" },
+  { type = "compute_field", field_path = "excess", expression = "value - (avg + 3.0 * std)" },
+]
+
+[[pipelines.adaptive_threshold.stages.check.parameters.rules]]
+condition = { field_path = "excess", operation = "<=", value = 0.0 }
+actions = [{ type = "drop_message" }]
+
+[outputs.console]
+type = "console"
+inputs = ["anomalies"]

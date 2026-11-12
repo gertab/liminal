@@ -1,0 +1,100 @@
+# Scenario: utilisation per MM, the share of the last minutes spent moving, performing or idle
+#
+# A reduce per MM follows its mode from its events: a move command starts moving, arriving (or being stopped) makes
+# it idle, and an action starts performing, until its next move. With every event it outputs how long the MM spent
+# in each mode since its previous event (dt). A sliding window then adds these up over the last "10 minutes", and a
+# rule turns them into shares.
+#
+# The MM's own sensors report every 0.5 s, so the time is counted even while it stands still. The simulator's
+# actions are instant, so "performing" is the time after an action until the next move (e.g. waiting at the machine).
+#
+# Demo time scale: the last 20 s, every 5 s, instead of the last 10 min every minute (size_ms = 600000,
+# slide_ms = 60000).
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or production)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_utilisation.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.utilisation]
+description = "Share of the last minutes each MM spent moving, performing or idle"
+
+# The MMs' events.
+[pipelines.utilisation.stages.mm_events]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "mm_events"
+
+[[pipelines.utilisation.stages.mm_events.parameters.rules]]
+condition = { field_path = "entity", operation = "startswith", value = "mm" }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+# Per MM: its mode, and the seconds spent in each mode since its previous event.
+[pipelines.utilisation.stages.mode]
+type = "reduce"
+inputs = ["mm_events"]
+output = "mm_time"
+
+[pipelines.utilisation.stages.mode.parameters]
+group_by = ["entity"]
+initial = { mode = "idle", moving_s = 0.0, performing_s = 0.0, idle_s = 0.0 }
+update = [
+  { field = "moving_s", expression = "if(state.mode == \"moving\", dt, 0.0)" },
+  { field = "performing_s", expression = "if(state.mode == \"performing\", dt, 0.0)" },
+  { field = "idle_s", expression = "if(state.mode == \"idle\", dt, 0.0)" },
+  { field = "mode", expression = "\"moving\"", when = { field_path = "kind", operation = "equals", value = "move_command" } },
+  { field = "mode", expression = "\"idle\"", when = { field_path = "kind", operation = "equals", value = "arrived" } },
+  { field = "mode", expression = "\"idle\"", when = { field_path = "kind", operation = "equals", value = "stopped" } },
+  { field = "mode", expression = "\"performing\"", when = { field_path = "kind", operation = "equals", value = "action" } },
+]
+
+# The last "10 minutes", every "minute".
+[pipelines.utilisation.stages.recent]
+type = "window"
+inputs = ["mm_time"]
+output = "mm_recent"
+
+[pipelines.utilisation.stages.recent.parameters]
+kind = "sliding"
+size_ms = 20000
+slide_ms = 5000
+group_by = ["entity"]
+aggregates = [
+  { function = "sum", field = "moving_s", as = "moving_s" },
+  { function = "sum", field = "performing_s", as = "performing_s" },
+  { function = "sum", field = "idle_s", as = "idle_s" },
+]
+
+# Shares of the time observed.
+[pipelines.utilisation.stages.shares]
+type = "rule"
+inputs = ["mm_recent"]
+output = "utilisation"
+
+[[pipelines.utilisation.stages.shares.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "compute_field", field_path = "observed_s", expression = "moving_s + performing_s + idle_s" }]
+
+[[pipelines.utilisation.stages.shares.parameters.rules]]
+condition = { field_path = "observed_s", operation = "<=", value = 0.0 }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.utilisation.stages.shares.parameters.rules]]
+condition = { operation = "always" }
+actions = [
+  { type = "compute_field", field_path = "moving_pct", expression = "100.0 * moving_s / observed_s" },
+  { type = "compute_field", field_path = "performing_pct", expression = "100.0 * performing_s / observed_s" },
+  { type = "compute_field", field_path = "idle_pct", expression = "100.0 * idle_s / observed_s" },
+]
+
+[outputs.console]
+type = "console"
+inputs = ["utilisation"]

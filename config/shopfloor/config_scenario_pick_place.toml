@@ -1,0 +1,69 @@
+# Scenario: every pick is followed by a place within 60 s
+#
+# A pick starts a timer for that MM, and its next place stops it. If 60 s (15 s here) pass without a place, the part may have
+# been dropped or the MM is stuck: an alert, once.
+#
+# A reduce per MM remembers whether it holds a part and since when (the simulator's ts). It needs a message to notice
+# that time has passed, so it also reads the MM's own telemetry: its sensors report every 0.5 s, and its positions
+# every 0.1 s while it moves. An MM that sent nothing at all would not be noticed; a watchdog on its telemetry
+# covers that.
+#
+# Demo time scale: 15 s instead of 60 s, so the scene is short (replace 15000.0 by 60000.0 in the expressions).
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or lost_part)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_pick_place.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.pick_place]
+description = "A pick not followed by a place within 15 s"
+
+# The MMs' events: actions, positions and their sensors' readings.
+[pipelines.pick_place.stages.mm_events]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "mm_events"
+
+[[pipelines.pick_place.stages.mm_events.parameters.rules]]
+condition = { field_path = "entity", operation = "startswith", value = "mm" }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+# Per MM: holding a part since when, and overdue after 15 s. `alert` is true on the first overdue message only.
+[pipelines.pick_place.stages.holding]
+type = "reduce"
+inputs = ["mm_events"]
+output = "mm_holding"
+
+[pipelines.pick_place.stages.holding.parameters]
+group_by = ["entity"]
+initial = { holding = false, picked_at = 0.0, held_s = 0.0, overdue = false, alert = false }
+update = [
+  { field = "holding", expression = "true", when = { field_path = "action", operation = "equals", value = "pick" } },
+  { field = "holding", expression = "false", when = { field_path = "action", operation = "equals", value = "place" } },
+  { field = "picked_at", expression = "ts", when = { field_path = "action", operation = "equals", value = "pick" } },
+  { field = "held_s", expression = "if(state.holding, (ts - state.picked_at) / 1000.0, 0.0)" },
+  { field = "overdue", expression = "state.holding && ts - state.picked_at > 15000.0" },
+  { field = "alert", expression = "!state.overdue && state.holding && ts - state.picked_at > 15000.0" },
+]
+
+[pipelines.pick_place.stages.alerts]
+type = "rule"
+inputs = ["mm_holding"]
+output = "pick_place_alerts"
+
+[[pipelines.pick_place.stages.alerts.parameters.rules]]
+condition = { field_path = "alert", operation = "equals", value = true }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.console]
+type = "console"
+inputs = ["pick_place_alerts"]

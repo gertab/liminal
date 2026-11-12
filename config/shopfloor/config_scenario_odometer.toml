@@ -1,0 +1,61 @@
+# Scenario: odometer per MM, with a service due every 1 km
+#
+# A reduce per MM keeps the distance it has driven, adding the distance from its previous position at each new
+# position. When the total passes a multiple of the service interval, a service is due: an alert, once per interval.
+# The running distance is on the stage's output channel (mm_distance) for a dashboard.
+#
+# Demo scale: a service every 10 m instead of every 1 km (replace 10.0 by 1000.0 in the expressions). In the
+# 2-minute shift scene, mm1 drives about 51 m and mm2 about 22 m.
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or production)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_odometer.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.odometer]
+description = "Distance driven per MM, and services due"
+
+# Positions only: the distance is measured between consecutive positions of an MM.
+[pipelines.odometer.stages.positions]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "positions"
+
+[[pipelines.odometer.stages.positions.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "position" }
+actions = [{ type = "drop_message" }]
+
+# prev is the MM's previous position (the position itself the first time, so it adds 0).
+[pipelines.odometer.stages.distance]
+type = "reduce"
+inputs = ["positions"]
+output = "mm_distance"
+
+[pipelines.odometer.stages.distance.parameters]
+group_by = ["entity"]
+initial = { distance_m = 0.0, service_due = false }
+update = [
+  { field = "distance_m", expression = "state.distance_m + math::hypot(x - prev.x, y - prev.y)" },
+  { field = "service_due", expression = "floor((state.distance_m + math::hypot(x - prev.x, y - prev.y)) / 10.0) > floor(state.distance_m / 10.0)" },
+]
+
+[pipelines.odometer.stages.services]
+type = "rule"
+inputs = ["mm_distance"]
+output = "services_due"
+
+[[pipelines.odometer.stages.services.parameters.rules]]
+condition = { field_path = "service_due", operation = "equals", value = true }
+actions = [{ type = "pass_through" }]
+else_actions = [{ type = "drop_message" }]
+
+[outputs.console]
+type = "console"
+inputs = ["services_due", "mm_distance"]

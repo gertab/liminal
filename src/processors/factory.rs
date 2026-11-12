@@ -261,3 +261,40 @@ pub fn create_processor(name: &str, config: StageConfig) -> anyhow::Result<Box<d
         .ok_or_else(|| anyhow::anyhow!("Processor '{}' not found", name))
         .and_then(|constructor| constructor(name, config))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::load_config;
+
+    /// The scenario examples are built from the strict stages (window, reduce, watchdog), so build
+    /// every processor they name: a mistake in a parameter or an expression fails here, not at Run.
+    #[test]
+    fn scenario_examples_can_be_built() {
+        let mut built = 0;
+        for entry in std::fs::read_dir("config/shopfloor").expect("scenario directory exists") {
+            let path = entry.expect("readable entry").path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if !(name.starts_with("config_scenario_") && name.ends_with(".toml")) {
+                continue;
+            }
+            let config = load_config(&path).unwrap_or_else(|error| panic!("{name} loads: {error}"));
+            let stages = config.inputs.iter().chain(&config.outputs).chain(
+                config
+                    .pipelines
+                    .values()
+                    .flat_map(|pipeline| &pipeline.stages),
+            );
+            for (stage_name, stage) in stages {
+                create_processor(&stage.r#type, stage.clone()).unwrap_or_else(|error| {
+                    panic!("{name}: stage '{stage_name}' can't be built: {error}")
+                });
+            }
+            built += 1;
+        }
+        assert!(built >= 10, "expected the scenario examples, built {built}");
+    }
+}

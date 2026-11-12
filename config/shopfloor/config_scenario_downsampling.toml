@@ -1,0 +1,55 @@
+# Scenario: downsampling for a dashboard
+#
+# A dashboard doesn't need every reading. Back-to-back (tumbling) 1 s windows reduce each sensor to one row per
+# second, with its min, max, mean and last value, and how many readings it summarises. Unlike an average alone, the
+# min and max keep short peaks visible.
+#
+# The 1 s is real time, as in the original scenario. For a longer view, change size_ms (e.g. 60000 for one row per
+# minute).
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (any scene)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_downsampling.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.downsampling]
+description = "One row per sensor per second"
+
+# Sensor readings only.
+[pipelines.downsampling.stages.readings]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "readings"
+
+[[pipelines.downsampling.stages.readings.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[pipelines.downsampling.stages.per_second]
+type = "window"
+inputs = ["readings"]
+output = "per_second"
+
+[pipelines.downsampling.stages.per_second.parameters]
+kind = "tumbling"
+size_ms = 1000
+group_by = ["sensor"]
+aggregates = [
+  { function = "min", field = "value", as = "min" },
+  { function = "max", field = "value", as = "max" },
+  { function = "avg", field = "value", as = "mean" },
+  { function = "last", field = "value", as = "last" },
+  { function = "last", field = "unit", as = "unit" },
+  { function = "count", as = "readings" },
+]
+
+[outputs.console]
+type = "console"
+inputs = ["per_second"]

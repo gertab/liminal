@@ -65,7 +65,7 @@ error_strategy = "continue"
 type = "watchdog"
 inputs = ["rule_d_data"]
 output = "watchdog_d_data"
-parameters = { timeout_ms = 5000, group_by = [], expected_keys = ["d"], emit_recovered = false }
+parameters = { timeout_ms = 5000, group_by = ["sensor"], expected_keys = ["d"], emit_recovered = false }
 
 # Without group_by, each input of the stage is watched instead (here named_a and named_b), and `timeouts` names
 # inputs: timeouts = { named_b = 5000 }

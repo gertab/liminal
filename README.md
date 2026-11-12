@@ -198,9 +198,10 @@ e.g. `{"sensor": "s1", "window_start": 1762790000000, "window_end": 176279001000
 | `sliding` (`size_ms`, `slide_ms`) | the last `size_ms` | every `slide_ms` | the last `size_ms`, with every message (no `slide_ms`) |
 | `last_n` (`size_n`) | the last N messages | every N messages | the last N, with every message |
 
-- **Aggregates:** `count`, `distinct_count`, `sum`, `avg`, `min`, `max`, `spread` (max − min) and `std` (population).
-  `count` counts the window's messages; the others need a `field`, and skip messages where it's missing or not a
-  number. `as` names the result; the default is `<field>_<function>` (or `count`).
+- **Aggregates:** `count`, `distinct_count`, `sum`, `avg`, `min`, `max`, `spread` (max − min), `std` (population),
+  and `first`/`last` (the field's earliest and latest value in the window, of any type). `count` counts the window's
+  messages; the others need a `field`, and skip messages where it's missing (the numeric ones also skip values that
+  aren't numbers). `as` names the result; the default is `<field>_<function>` (or `count`).
 - **Time:** time windows use each message's event time (see [Timing Semantics](#timing-semantics)): when the input
   received it, or the payload field set by the input's `event_time_field`. A window is output once the stage's
   watermark passes its end: the wall clock minus the stage's `timing.max_lateness_ms` (250 ms without a `timing`
@@ -344,6 +345,35 @@ Run any example with:
 ```bash
 cargo run -- --config config/examples/config_rule_test.toml
 ```
+
+### Scenarios
+
+The `config/shopfloor/config_scenario_*.toml` configs each solve one monitoring problem from a factory floor with the
+`window`, `reduce` and `watchdog` stages. Their events come from the
+[shopfloor simulator](https://github.com/gertab/shopfloor-sim)'s `proposed-liminal-scenarios.toml`, whose scenes
+produce each situation:
+
+```bash
+cargo run -- --config config/shopfloor/config_scenario_noise_exposure.toml                # start Liminal first
+cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift  # in shopfloor-sim
+```
+
+The `shift` scene plays every episode in 2 minutes, and each episode has its own scene of 20-40 s. Periods are
+shortened so the examples run quickly. For example, the 8-hour shift takes 2 minutes, 15 min becomes 15 s, and the 60 s
+for a place after a pick becomes 15 s. Each config says which values to change for real time.
+
+| Config | Problem | How |
+|---|---|---|
+| `noise_exposure` | Daily noise exposure against the EU limits (80/85/87 dB(A) as `LEX,8h`) | energy average per period (window), exposure so far and projected (reduce) |
+| `temperature_rate` | At most 5 °C in any 15 min (deflasher) or 1.1 °C (hall, ASHRAE 55) | sliding windows: `spread` against a per-sensor limit |
+| `adaptive_threshold` | A vibration unusual for that sensor (over its average + 3σ) | sliding window per sensor: `avg`, `std`, `last` |
+| `deflasher_settled` | Place only once the temperature has been within ±0.3 °C for 2 min | sliding window `spread`, then a reduce that flags early places |
+| `pick_place` | Every pick followed by a place within 60 s (15 s in the demo) | reduce per MM, timed by its telemetry |
+| `utilisation` | Share of the last minutes each MM spent moving, performing or idle | reduce (time per mode), then a sliding `sum` |
+| `downsampling` | One row per sensor per second for a dashboard | tumbling window: `min`, `max`, `avg`, `last` |
+| `odometer` | Distance per MM, a service due every 1 km | reduce per MM |
+| `stocker` | Stocker fill level: full, over-full, empty, a pick from empty | reduce |
+| `lost_events` | Gaps or disorder in the event numbers | reduce on the raw stream |
 
 ## Extending Liminal
 

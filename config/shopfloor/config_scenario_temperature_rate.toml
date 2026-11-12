@@ -1,0 +1,134 @@
+# Scenario: limits on how fast a temperature changes, over any 15 and 60 minutes
+#
+# Some limits are on the change within any window, not between two readings: a temperature that rises and falls back
+# between two readings 15 min apart passes a two-reading check, but not a limit on max - min over any 15 min.
+#   - Machines (deflasher), with the ASHRAE TC 9.9 limits for IT equipment: at most 5 °C in any 15 min and 20 °C in
+#     an hour ("Thermal Guidelines for Data Processing Environments").
+#   - The hall, for people (ASHRAE Standard 55): operative temperature may change at most 1.1 °C in any 15 min and
+#     2.2 °C in an hour (Addendum h to 55-2020).
+#
+# Sliding windows give, per sensor, the spread (max - min) over the last 15 and 60 "minutes". An alert shows the
+# spread, its limit and how far over it is (excess), with change = last - first: what two readings at the window's
+# ends would have seen.
+#
+# Demo time scale: 15 s and 60 s windows instead of 15 and 60 min. For real time, set size_ms = 900000 and 3600000
+# (slide_ms = 60000).
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
+#                   (or deflasher_heat_spike, hall_draft)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_temperature_rate.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.temperature_rate]
+description = "Temperature change within any 15 and 60 minutes"
+
+# Temperature readings only.
+[pipelines.temperature_rate.stages.temperatures]
+type = "rule"
+inputs = ["shopfloor_events"]
+output = "temperatures"
+channel = { type = "broadcast", capacity = 1024 }
+
+[[pipelines.temperature_rate.stages.temperatures.parameters.rules]]
+condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.temperature_rate.stages.temperatures.parameters.rules]]
+condition = { field_path = "sensor_kind", operation = "not_equals", value = "temperature" }
+actions = [{ type = "drop_message" }]
+
+# Any 15 "minutes", every "minute".
+[pipelines.temperature_rate.stages.window_15]
+type = "window"
+inputs = ["temperatures"]
+output = "spread_15"
+
+[pipelines.temperature_rate.stages.window_15.parameters]
+kind = "sliding"
+size_ms = 15000
+slide_ms = 1000
+group_by = ["sensor"]
+aggregates = [
+  { function = "spread", field = "value", as = "spread" },
+  { function = "first", field = "value", as = "first" },
+  { function = "last", field = "value", as = "last" },
+]
+
+[pipelines.temperature_rate.stages.limit_15]
+type = "rule"
+inputs = ["spread_15"]
+output = "alerts_15"
+
+[[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" }
+actions = [{ type = "set_field", field_path = "limit", value = 5.0 }]
+
+[[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "hall_temperature" }
+actions = [{ type = "set_field", field_path = "limit", value = 1.1 }]
+
+[[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
+condition = { operation = "always" }
+actions = [
+  { type = "set_field", field_path = "period", value = "15 min" },
+  { type = "compute_field", field_path = "excess", expression = "spread - limit" },
+  { type = "compute_field", field_path = "change", expression = "last - first" },
+]
+
+[[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
+condition = { field_path = "excess", operation = "<=", value = 0.0 }
+actions = [{ type = "drop_message" }]
+
+# Any 60 "minutes", every 5.
+[pipelines.temperature_rate.stages.window_60]
+type = "window"
+inputs = ["temperatures"]
+output = "spread_60"
+
+[pipelines.temperature_rate.stages.window_60.parameters]
+kind = "sliding"
+size_ms = 60000
+slide_ms = 5000
+group_by = ["sensor"]
+aggregates = [
+  { function = "spread", field = "value", as = "spread" },
+  { function = "first", field = "value", as = "first" },
+  { function = "last", field = "value", as = "last" },
+]
+
+[pipelines.temperature_rate.stages.limit_60]
+type = "rule"
+inputs = ["spread_60"]
+output = "alerts_60"
+
+[[pipelines.temperature_rate.stages.limit_60.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" }
+actions = [{ type = "set_field", field_path = "limit", value = 20.0 }]
+
+[[pipelines.temperature_rate.stages.limit_60.parameters.rules]]
+condition = { field_path = "sensor", operation = "equals", value = "hall_temperature" }
+actions = [{ type = "set_field", field_path = "limit", value = 2.2 }]
+
+[[pipelines.temperature_rate.stages.limit_60.parameters.rules]]
+condition = { operation = "always" }
+actions = [
+  { type = "set_field", field_path = "period", value = "60 min" },
+  { type = "compute_field", field_path = "excess", expression = "spread - limit" },
+  { type = "compute_field", field_path = "change", expression = "last - first" },
+]
+
+[[pipelines.temperature_rate.stages.limit_60.parameters.rules]]
+condition = { field_path = "excess", operation = "<=", value = 0.0 }
+actions = [{ type = "drop_message" }]
+
+[outputs.console]
+type = "console"
+inputs = ["alerts_15", "alerts_60"]

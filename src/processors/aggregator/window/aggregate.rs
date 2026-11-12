@@ -101,12 +101,26 @@ impl Aggregator {
                     .collect::<HashSet<_>>()
                     .len(),
             ),
+            // The window's earliest and latest value (event-time order; arrival order for last_n).
+            AggregateFunction::First => present(window, slot).next().cloned().unwrap_or_default(),
+            AggregateFunction::Last => present(window, slot)
+                .next_back()
+                .cloned()
+                .unwrap_or_default(),
             function => numeric(
                 function,
                 &numbers(window, slot, &self.fields[slot], warnings),
             ),
         }
     }
+}
+
+/// The values of a field in the window, in window order, skipping messages where it's missing.
+fn present<'a>(window: &'a [&Item], slot: usize) -> impl DoubleEndedIterator<Item = &'a Value> {
+    window
+        .iter()
+        .filter_map(move |item| item.values[slot].as_ref())
+        .filter(|value| !value.is_null())
 }
 
 /// The numeric values of a field in the window. Missing and non-numeric values are skipped.
@@ -146,7 +160,10 @@ fn numeric(function: AggregateFunction, numbers: &[f64]) -> Value {
             let mean = sum / n;
             (numbers.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n).sqrt()
         }
-        AggregateFunction::Count | AggregateFunction::DistinctCount => return Value::Null,
+        AggregateFunction::Count
+        | AggregateFunction::DistinctCount
+        | AggregateFunction::First
+        | AggregateFunction::Last => return Value::Null,
     };
     Number::from_f64(result).map_or(Value::Null, Value::Number)
 }
@@ -168,6 +185,45 @@ mod tests {
         assert_eq!(value(AggregateFunction::Std), 2.0);
         assert_eq!(numeric(AggregateFunction::Std, &[3.5]), json!(0.0));
         assert_eq!(numeric(AggregateFunction::Avg, &[]), Value::Null);
+    }
+
+    #[test]
+    fn first_and_last_skip_missing_values_and_keep_any_type() {
+        let specs: Vec<AggregateSpec> = serde_json::from_value(json!([
+            { "function": "first", "field": "value" },
+            { "function": "last", "field": "value" },
+            { "function": "last", "field": "state" },
+        ]))
+        .unwrap();
+        let aggregator = Aggregator::new(&specs);
+        let items = [
+            aggregator.item(1, &json!({ "state": "starting" })),
+            aggregator.item(2, &json!({ "value": 1.5, "state": "on" })),
+            aggregator.item(3, &json!({ "value": 2.5 })),
+            aggregator.item(4, &json!({ "value": null, "state": "off" })),
+        ];
+        let window: Vec<&Item> = items.iter().collect();
+        let result = aggregator.result(
+            &GroupBy::default(),
+            &GroupBy::default().key_of(&json!({})).unwrap(),
+            &window,
+            0,
+            10,
+            &mut WarnOnce::new("t"),
+        );
+
+        assert_eq!(result["value_first"], json!(1.5));
+        assert_eq!(result["value_last"], json!(2.5));
+        assert_eq!(result["state_last"], json!("off"));
+        let empty = aggregator.result(
+            &GroupBy::default(),
+            &GroupBy::default().key_of(&json!({})).unwrap(),
+            &[],
+            0,
+            10,
+            &mut WarnOnce::new("t"),
+        );
+        assert_eq!(empty["value_last"], Value::Null);
     }
 
     #[test]

@@ -680,8 +680,10 @@ fn window_aggregate_schema() -> SchemaSpec {
                     "max",
                     "spread",
                     "std",
+                    "first",
+                    "last",
                 ],
-                "count, distinct_count, sum, avg, min, max, spread (max - min) or std.",
+                "count, distinct_count, sum, avg, min, max, spread (max - min), std, or first/last (the earliest/latest value).",
             ),
             applies_when(
                 field(
@@ -703,6 +705,8 @@ fn window_aggregate_schema() -> SchemaSpec {
                         "max",
                         "spread",
                         "std",
+                        "first",
+                        "last",
                     ],
                 )],
             ),

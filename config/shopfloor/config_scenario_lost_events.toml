@@ -1,0 +1,78 @@
+# Scenario: detecting lost and out-of-order events
+#
+# The simulator numbers its events (seq, +1 per event) and stamps them (ts). A reduce right after the input, before
+# any filter, compares each event with the previous one:
+#   - lost: a gap in the numbers (seq jumps by more than 1), and lost_total so far;
+#   - out_of_order: an event stamped earlier than the one before it;
+#   - restarted: the numbers start again (the simulator was restarted), which isn't a loss.
+#
+# A live run over TCP loses nothing, so the console stays quiet. Events are lost when a burst overflows a channel
+# (ISSUES: broadcast channels drop the oldest messages for a slow consumer). To see it, replay a recording into this
+# config with the input's capacity set to e.g. 16, and give the stages after it a large one (e.g. 8192): the same
+# burst would otherwise overflow them too, and lose some of the reports.
+#
+#   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (any scene)
+#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_lost_events.toml
+
+[inputs.shopfloor]
+type = "tcp_input"
+output = "shopfloor_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9001, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.shopfloor.timing]
+event_time_field = "ts"
+
+[pipelines.lost_events]
+description = "Gaps and disorder in the event numbers"
+
+# No group_by: prev is the previous event of the whole stream (the event itself the first time).
+[pipelines.lost_events.stages.sequence]
+type = "reduce"
+inputs = ["shopfloor_events"]
+output = "sequence_checks"
+
+[pipelines.lost_events.stages.sequence.parameters]
+initial = { seq_before = 0.0, seq_now = 0.0, lost = 0.0, lost_total = 0.0, out_of_order = false, restarted = false }
+update = [
+  { field = "seq_before", expression = "prev.seq" },
+  { field = "seq_now", expression = "seq" },
+  { field = "lost", expression = "if(count == 1 || seq <= prev.seq, 0.0, seq - prev.seq - 1.0)" },
+  { field = "lost_total", expression = "state.lost_total + if(count == 1 || seq <= prev.seq, 0.0, seq - prev.seq - 1.0)" },
+  { field = "out_of_order", expression = "ts < prev.ts" },
+  { field = "restarted", expression = "seq < prev.seq && ts >= prev.ts" },
+]
+
+# Only the anomalies.
+[pipelines.lost_events.stages.anomalies]
+type = "rule"
+inputs = ["sequence_checks"]
+output = "sequence_anomalies"
+
+[[pipelines.lost_events.stages.anomalies.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "set_field", field_path = "keep", value = false }]
+
+[[pipelines.lost_events.stages.anomalies.parameters.rules]]
+condition = { field_path = "lost", operation = ">", value = 0.0 }
+actions = [{ type = "set_field", field_path = "keep", value = true }]
+
+[[pipelines.lost_events.stages.anomalies.parameters.rules]]
+condition = { field_path = "out_of_order", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "keep", value = true }]
+
+[[pipelines.lost_events.stages.anomalies.parameters.rules]]
+condition = { field_path = "restarted", operation = "equals", value = true }
+actions = [{ type = "set_field", field_path = "keep", value = true }]
+
+[[pipelines.lost_events.stages.anomalies.parameters.rules]]
+condition = { field_path = "keep", operation = "equals", value = false }
+actions = [{ type = "drop_message" }]
+
+[[pipelines.lost_events.stages.anomalies.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "remove_field", field_path = "keep" }]
+
+[outputs.console]
+type = "console"
+inputs = ["sequence_anomalies"]
