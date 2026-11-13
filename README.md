@@ -1,7 +1,7 @@
 
 NOTE:  
 Shopfloor simulator was moved to [https://github.com/gertab/shopfloor-sim](https://github.com/gertab/shopfloor-sim).  
-Refer to liminal examples that interact with this simulator in `config/examples/config_shopfloor_...`.
+Refer to liminal examples that interact with this simulator in `config/examples/shopfloor`.
 
 
 # Liminal
@@ -354,14 +354,14 @@ cargo run -- --config config/examples/config_rule_test.toml
 
 ### Scenarios
 
-The `config/shopfloor/config_scenario_*.toml` configs each solve one monitoring problem from a factory floor with the
+The `config/shopfloor-proposed/config_scenario_*.toml` configs each solve one monitoring problem from a factory floor with the
 `window`, `reduce` and `watchdog` stages. Their events come from the
 [shopfloor simulator](https://github.com/gertab/shopfloor-sim)'s `proposed-liminal-scenarios.toml`, whose scenes
 produce each situation. They travel over MQTT: start a broker first, then Liminal, then the scene.
 
 ```bash
 docker run -it -p 1883:1883 eclipse-mosquitto                                             # an MQTT broker
-cargo run -- --config config/shopfloor/config_scenario_noise_exposure.toml                # Liminal
+cargo run -- --config config/shopfloor-proposed/config_scenario_noise_exposure.toml                # Liminal
 cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift  # in shopfloor-sim
 ```
 

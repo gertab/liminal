@@ -19,7 +19,7 @@
 #
 #   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or noisy_period)
-#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_noise_exposure.toml   (start it first)
+#   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_noise_exposure.toml   (start it first)
 
 [inputs.noise]
 type = "mqtt_sub"

@@ -15,7 +15,7 @@
 #
 #   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (any scene)
-#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_lost_events.toml
+#   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_lost_events.toml
 
 [inputs.all]
 type = "mqtt_sub"

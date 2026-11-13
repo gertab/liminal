@@ -19,7 +19,7 @@
 #   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
 #                   (or deflasher_heat_spike, hall_draft)
-#   Liminal:        cargo run -- --config config/shopfloor/config_scenario_temperature_rate.toml
+#   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_temperature_rate.toml
 
 [inputs.temperatures]
 type = "mqtt_sub"
