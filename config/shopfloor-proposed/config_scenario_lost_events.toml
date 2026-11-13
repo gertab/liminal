@@ -1,6 +1,6 @@
 # Scenario: detecting lost and out-of-order events
 #
-# The simulator numbers its events (seq, +1 per event) and stamps them (ts). A reduce right after the input, before
+# The simulator numbers its events (seq, +1 per event) and stamps them (timestamp_ms). A reduce right after the input, before
 # any filter, compares each event with the previous one:
 #   - lost: a gap in the numbers (seq jumps by more than 1), and lost_total so far;
 #   - out_of_order: an event stamped earlier than the one before it;
@@ -24,7 +24,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/all"] }
 
 [inputs.all.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.lost_events]
 description = "Gaps and disorder in the event numbers"
@@ -42,8 +42,8 @@ update = [
   { field = "seq_now", expression = "seq" },
   { field = "lost", expression = "if(count == 1 || seq <= prev.seq, 0.0, seq - prev.seq - 1.0)" },
   { field = "lost_total", expression = "state.lost_total + if(count == 1 || seq <= prev.seq, 0.0, seq - prev.seq - 1.0)" },
-  { field = "out_of_order", expression = "ts < prev.ts" },
-  { field = "restarted", expression = "seq < prev.seq && ts >= prev.ts" },
+  { field = "out_of_order", expression = "timestamp_ms < prev.timestamp_ms" },
+  { field = "restarted", expression = "seq < prev.seq && timestamp_ms >= prev.timestamp_ms" },
 ]
 
 # Only the anomalies.

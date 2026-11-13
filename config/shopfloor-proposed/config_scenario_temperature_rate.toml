@@ -26,7 +26,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/temperature"] }
 
 [inputs.temperatures.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.temperature_rate]
 description = "Temperature change within any 15 and 60 minutes"

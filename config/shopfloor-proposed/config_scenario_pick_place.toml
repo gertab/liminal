@@ -3,7 +3,7 @@
 # A pick starts a timer for that MM, and its next place stops it. If 60 s pass without a place, the part may have been
 # dropped or the MM is stuck: one alert.
 #
-# A reduce per MM remembers whether it holds a part, and since when (the simulator's ts). It only notices time passing
+# A reduce per MM remembers whether it holds a part, and since when (the simulator's timestamp_ms). It only notices time passing
 # when a message arrives, so it also reads the MM's own telemetry: its sensors report every 0.5 s. An MM that went
 # completely silent wouldn't be noticed; a watchdog on its telemetry would catch that.
 #
@@ -22,7 +22,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/mm/+"] }
 
 [inputs.mms.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.pick_place]
 description = "A pick not followed by a place within 15 s"
@@ -35,15 +35,15 @@ inputs = ["mm_events"]
 output = "mm_holding"
 
 [pipelines.pick_place.stages.holding.parameters]
-group_by = ["entity"]
+group_by = ["device_id"]
 initial = { holding = false, picked_at = 0.0, held_s = 0.0, overdue = false, alert = false }
 update = [
-  { field = "holding", expression = "true", when = { field_path = "action", operation = "equals", value = "pick" } },
-  { field = "holding", expression = "false", when = { field_path = "action", operation = "equals", value = "place" } },
-  { field = "picked_at", expression = "ts", when = { field_path = "action", operation = "equals", value = "pick" } },
-  { field = "held_s", expression = "if(state.holding, (ts - state.picked_at) / 1000.0, 0.0)" },
-  { field = "overdue", expression = "state.holding && ts - state.picked_at > 15000.0" },
-  { field = "alert", expression = "!state.overdue && state.holding && ts - state.picked_at > 15000.0" },
+  { field = "holding", expression = "true", when = { field_path = "event", operation = "equals", value = "pick" } },
+  { field = "holding", expression = "false", when = { field_path = "event", operation = "equals", value = "place" } },
+  { field = "picked_at", expression = "timestamp_ms", when = { field_path = "event", operation = "equals", value = "pick" } },
+  { field = "held_s", expression = "if(state.holding, (timestamp_ms - state.picked_at) / 1000.0, 0.0)" },
+  { field = "overdue", expression = "state.holding && timestamp_ms - state.picked_at > 15000.0" },
+  { field = "alert", expression = "!state.overdue && state.holding && timestamp_ms - state.picked_at > 15000.0" },
 ]
 
 # Only the alerts.

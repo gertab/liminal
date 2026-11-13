@@ -20,7 +20,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/#"] }
 
 [inputs.sensors.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.downsampling]
 description = "One row per sensor per second"

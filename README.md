@@ -234,7 +234,7 @@ inputs = ["moves"]
 output = "distance"
 
 [pipelines.fleet.stages.odometer.parameters]
-group_by = ["entity"]
+group_by = ["device_id"]
 initial = { distance_m = 0.0, top_speed = 0.0 }
 update = [
   { field = "distance_m", expression = "state.distance_m + math::hypot(x - prev.x, y - prev.y)",
@@ -242,10 +242,10 @@ update = [
   { field = "top_speed", expression = "max(state.top_speed, speed_mps)",
     when = { field_path = "kind", operation = "==", value = "position" } },
 ]
-reset_when = { field_path = "action", operation = "==", value = "place" }
+reset_when = { field_path = "event", operation = "==", value = "place" }
 ```
 
-Each output is the `group_by` fields and the state, e.g. `{"entity": "mm1", "distance_m": 20.11, "top_speed": 1.2}`.
+Each output is the `group_by` fields and the state, e.g. `{"device_id": "mm1", "distance_m": 20.11, "top_speed": 1.2}`.
 
 - **`initial`** is the state at the start, and after a reset: plain names with a number, text or true/false each.
 - **`update`** sets state values with expressions (the same expressions as `compute_field`), optionally only `when` a

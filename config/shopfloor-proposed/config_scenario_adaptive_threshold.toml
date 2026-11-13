@@ -19,7 +19,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/vibration"] }
 
 [inputs.vibration.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.adaptive_threshold]
 description = "Each vibration sensor against its own recent readings"

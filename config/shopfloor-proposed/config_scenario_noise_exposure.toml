@@ -34,7 +34,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/noise"] }
 
 [inputs.noise.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.noise]
 description = "Noise exposure over the shift"
@@ -62,7 +62,7 @@ emit = "every_message"
 aggregates = [
   { function = "sum", field = "energy", as = "energy_sum" },
   { function = "last", field = "value", as = "level" },
-  { function = "last", field = "ts", as = "ts_now" },
+  { function = "last", field = "timestamp_ms", as = "ts_now" },
 ]
 
 # The time into the shift, the dose, the projection and the directive's action level. With each reading counting for

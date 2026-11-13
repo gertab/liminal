@@ -24,7 +24,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/actions"] }
 
 [inputs.actions.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.stocker]
 description = "Stocker fill level, full and empty"
@@ -50,12 +50,12 @@ group_by = ["at"]
 include_message = true
 initial = { level = 2, full = false, overflow = false, empty = false, underflow = false }
 update = [
-  { field = "level", expression = "state.level + 1", when = { field_path = "action", operation = "equals", value = "place" } },
-  { field = "level", expression = "max(state.level - 1, 0)", when = { field_path = "action", operation = "equals", value = "pick" } },
-  { field = "full", expression = "action == \"place\" && state.level + 1 == 4" },
-  { field = "overflow", expression = "action == \"place\" && state.level >= 4" },
-  { field = "empty", expression = "action == \"pick\" && state.level == 1" },
-  { field = "underflow", expression = "action == \"pick\" && state.level <= 0" },
+  { field = "level", expression = "state.level + 1", when = { field_path = "event", operation = "equals", value = "place" } },
+  { field = "level", expression = "max(state.level - 1, 0)", when = { field_path = "event", operation = "equals", value = "pick" } },
+  { field = "full", expression = "event == \"place\" && state.level + 1 == 4" },
+  { field = "overflow", expression = "event == \"place\" && state.level >= 4" },
+  { field = "empty", expression = "event == \"pick\" && state.level == 1" },
+  { field = "underflow", expression = "event == \"pick\" && state.level <= 0" },
 ]
 
 # An alert for each flag; nothing otherwise.

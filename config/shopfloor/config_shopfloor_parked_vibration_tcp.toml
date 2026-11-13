@@ -33,7 +33,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "position" 
 actions = [{ type = "drop_message" }]
 
 [[pipelines.parked_vibration.stages.mm1_speed.parameters.rules]]
-condition = { field_path = "entity", operation = "equals", value = "mm1" }
+condition = { field_path = "device_id", operation = "equals", value = "mm1" }
 actions = [{ type = "keep_only_fields", field_paths = ["speed_mps"] }]
 else_actions = [{ type = "drop_message" }]
 
@@ -49,10 +49,10 @@ actions = [{ type = "drop_message" }]
 
 [[pipelines.parked_vibration.stages.mm1_vibration.parameters.rules]]
 condition = { field_path = "sensor", operation = "equals", value = "mm1.vibration" }
-actions = [{ type = "keep_only_fields", field_paths = ["value", "ts"] }]
+actions = [{ type = "keep_only_fields", field_paths = ["value", "timestamp_ms"] }]
 else_actions = [{ type = "drop_message" }]
 
-# Combine them: { "mm1_speed": { "speed_mps": … }, "mm1_vibration": { "value": …, "ts": … } }
+# Combine them: { "mm1_speed": { "speed_mps": … }, "mm1_vibration": { "value": …, "timestamp_ms": … } }
 # `latest_by_input` remembers MM 1's last speed, which stays right while it is parked and silent.
 [pipelines.parked_vibration.stages.speed_and_vibration]
 type = "fusion"
@@ -75,7 +75,7 @@ actions = [{ type = "compute_field", field_path = "flag", expression = "if(mm1_s
 condition = { field_path = "flag", operation = ">", value = 0.5 }
 actions = [
     { type = "compute_field", field_path = "vibration_g", expression = "mm1_vibration.value" },
-    { type = "compute_field", field_path = "ts", expression = "mm1_vibration.ts" },
+    { type = "compute_field", field_path = "timestamp_ms", expression = "mm1_vibration.timestamp_ms" },
     { type = "keep_only_fields", field_paths = [] },
     { type = "set_field", field_path = "alert", value = "MM 1 shaking while parked" },
 ]

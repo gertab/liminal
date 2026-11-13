@@ -10,7 +10,7 @@
 # (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).
 #
 # Every event arrives as one JSON payload with a top-level `kind` (position, move_command, arrived,
-# stopped, action, sensor, sensor_set, scene, sim); the stages below route on it.
+# stopped, dock, undock, action, sensor, sensor_set, scene, sim); the stages below route on it.
 
 [inputs.shopfloor]
 type = "tcp_input"

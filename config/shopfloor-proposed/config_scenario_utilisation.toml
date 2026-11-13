@@ -23,7 +23,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/mm/+"] }
 
 [inputs.mms.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.utilisation]
 description = "Share of the last minutes each MM spent moving, performing or idle"
@@ -35,7 +35,7 @@ inputs = ["mm_events"]
 output = "mm_time"
 
 [pipelines.utilisation.stages.mode.parameters]
-group_by = ["entity"]
+group_by = ["device_id"]
 initial = { mode = "idle", moving_s = 0.0, performing_s = 0.0, idle_s = 0.0 }
 update = [
   { field = "moving_s", expression = "if(state.mode == \"moving\", dt, 0.0)" },
@@ -57,7 +57,7 @@ output = "mm_recent"
 kind = "sliding"
 size_ms = 20000
 slide_ms = 5000
-group_by = ["entity"]
+group_by = ["device_id"]
 aggregates = [
   { function = "sum", field = "moving_s", as = "moving_s" },
   { function = "sum", field = "performing_s", as = "performing_s" },

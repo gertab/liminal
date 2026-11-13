@@ -30,14 +30,14 @@ condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.data_centre.stages.overheating_racks.parameters.rules]]
-condition = { field_path = "sensor_kind", operation = "not_equals", value = "inlet_temp" }
+condition = { field_path = "type", operation = "not_equals", value = "inlet_temp" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.data_centre.stages.overheating_racks.parameters.rules]]
 condition = { field_path = "value", operation = ">", value = 32.0 }
 actions = [
     { type = "set_field", field_path = "alert", value = "rack overheating" },
-    { type = "keep_only_fields", field_paths = ["ts", "entity", "value", "unit"] },
+    { type = "keep_only_fields", field_paths = ["timestamp_ms", "device_id", "value", "unit"] },
 ]
 else_actions = [{ type = "drop_message" }]
 
@@ -49,7 +49,7 @@ output = "robot_actions"
 
 [[pipelines.data_centre.stages.robot_actions.parameters.rules]]
 condition = { field_path = "kind", operation = "equals", value = "action" }
-actions = [{ type = "keep_only_fields", field_paths = ["ts", "entity", "action", "at"] }]
+actions = [{ type = "keep_only_fields", field_paths = ["timestamp_ms", "device_id", "event", "at"] }]
 else_actions = [{ type = "drop_message" }]
 
 [outputs.hall_log]

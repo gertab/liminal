@@ -27,7 +27,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/sensors/temperature"] }
 
 [inputs.temperatures.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [inputs.actions]
 type = "mqtt_sub"
@@ -36,7 +36,7 @@ channel = { type = "broadcast", capacity = 1024 }
 parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["factory/actions"] }
 
 [inputs.actions.timing]
-event_time_field = "ts"
+event_time_field = "timestamp_ms"
 
 [pipelines.deflasher]
 description = "Deflasher readiness, and places made too early"
@@ -90,7 +90,7 @@ inputs = ["actions"]
 output = "deflasher_places"
 
 [[pipelines.deflasher.stages.places.parameters.rules]]
-condition = { field_path = "action", operation = "not_equals", value = "place" }
+condition = { field_path = "event", operation = "not_equals", value = "place" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.deflasher.stages.places.parameters.rules]]
@@ -108,8 +108,8 @@ initial = { settled = false, early_place = false, changed = false }
 update = [
   { field = "settled", expression = "settled", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
   { field = "changed", expression = "settled != state.settled", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
-  { field = "changed", expression = "false", when = { field_path = "action", operation = "equals", value = "place" } },
-  { field = "early_place", expression = "!state.settled", when = { field_path = "action", operation = "equals", value = "place" } },
+  { field = "changed", expression = "false", when = { field_path = "event", operation = "equals", value = "place" } },
+  { field = "early_place", expression = "!state.settled", when = { field_path = "event", operation = "equals", value = "place" } },
   { field = "early_place", expression = "false", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
 ]
 include_message = true

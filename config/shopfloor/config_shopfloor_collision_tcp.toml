@@ -32,7 +32,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "position" 
 actions = [{ type = "drop_message" }]
 
 [[pipelines.collision_warning.stages.mm1_position.parameters.rules]]
-condition = { field_path = "entity", operation = "equals", value = "mm1" }
+condition = { field_path = "device_id", operation = "equals", value = "mm1" }
 actions = [{ type = "keep_only_fields", field_paths = ["x", "y"] }]
 else_actions = [{ type = "drop_message" }]
 
@@ -46,7 +46,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "position" 
 actions = [{ type = "drop_message" }]
 
 [[pipelines.collision_warning.stages.mm2_position.parameters.rules]]
-condition = { field_path = "entity", operation = "equals", value = "mm2" }
+condition = { field_path = "device_id", operation = "equals", value = "mm2" }
 actions = [{ type = "keep_only_fields", field_paths = ["x", "y"] }]
 else_actions = [{ type = "drop_message" }]
 
