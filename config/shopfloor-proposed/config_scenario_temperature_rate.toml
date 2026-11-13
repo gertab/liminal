@@ -1,22 +1,20 @@
-# Scenario: limits on how fast a temperature changes, over any 15 and 60 minutes
+# Scenario: limits on how fast a temperature may change, within any 15 and 60 minutes
 #
-# Some limits are on the change within any window, not between two readings: a temperature that rises and falls back
-# between two readings 15 min apart passes a two-reading check, but not a limit on max - min over any 15 min.
-#   - Machines (deflasher), with the ASHRAE TC 9.9 limits for IT equipment: at most 5 °C in any 15 min and 20 °C in
-#     an hour ("Thermal Guidelines for Data Processing Environments").
-#   - The hall, for people (ASHRAE Standard 55): operative temperature may change at most 1.1 °C in any 15 min and
-#     2.2 °C in an hour (Addendum h to 55-2020).
+# Some limits apply to the change within any period, not between two readings. A temperature that rises and falls
+# back between two readings 15 min apart passes a two-reading check, but not a limit on max - min over any 15 min.
+#   - deflasher: at most 5 °C in any 15 min and 20 °C in an hour (ASHRAE TC 9.9, for IT equipment);
+#   - hall, for people: at most 1.1 °C in any 15 min and 2.2 °C in an hour (ASHRAE 55).
 #
-# Sliding windows give, per sensor, the spread (max - min) over the last 15 and 60 "minutes". An alert shows the
-# spread, its limit and how far over it is (excess), with change = last - first: what two readings at the window's
-# ends would have seen.
+# Sliding windows give each sensor's spread (max - min) over the last 15 and 60 minutes. An alert shows:
+#   - spread, limit, and excess: how far over the limit;
+#   - change: last - first, what two readings at the window's ends would show.
 #
-# Demo time scale: 15 s and 60 s windows instead of 15 and 60 min. For real time, set size_ms = 900000 and 3600000
+# Demo: 15 s and 60 s windows instead of 15 and 60 min. For real time, set size_ms = 900000 and 3600000
 # (slide_ms = 60000).
 #
-# Events: the simulator's MQTT topic factory/sensors/temperature (the deflasher's and the hall's readings).
+# Reads the MQTT topic factory/sensors/temperature.
 #
-#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift
 #                   (or deflasher_heat_spike, hall_draft)
 #   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_temperature_rate.toml

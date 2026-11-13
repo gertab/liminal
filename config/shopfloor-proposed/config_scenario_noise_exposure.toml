@@ -1,23 +1,29 @@
 # Scenario: daily noise exposure, so far and projected to the end of the shift
 #
-# Directive 2003/10/EC sets its levels on the daily exposure LEX,8h, the energy average of the noise over an 8-hour
-# day. At 80 dB(A) hearing protection must be made available, at 85 dB(A) it must be worn, and 87 dB(A) is the limit
-# (https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:32003L0010).
+# The EU noise directive measures the daily exposure LEX,8h: the average noise energy over an 8-hour day.
+# At 80 dB(A) hearing protection must be available, at 85 dB(A) it must be worn, and 87 dB(A) is the limit.
 #
-# An energy average is not the average of the dB values: each reading becomes 10^(L/10), those are averaged, and
-# 10·log10 turns the result back into dB. Every 10 s a window averages the energy (and, for comparison, the dB
-# values), and a reduce adds the period to the exposure so far. It then reports:
-#   - laeq_so_far: the level so far;
-#   - dose_pct: the dose so far, as a share of 85 dB(A) over the whole shift;
-#   - projected_lex: the day's exposure if the last period's level held to the end of the shift;
-#   - action: the directive's action level the projection reaches.
+# Decibels are logarithmic, so you average the sound energy, then convert back to decibels.
 #
-# Demo time scale: the shift is 2 minutes (120 s) instead of 8 hours, and a report comes every 10 s (40 min of a real
-# shift). For a real shift, set size_ms = 1800000 (30 min) and replace 120.0 by 28800.0 in the expressions.
+# A tumbling window as long as the shift holds its readings, as energy, 10^(L/10). With every reading it outputs the
+# shift so far, and a rule reports:
+#   - level: the latest reading;
+#   - elapsed_s: the time into the shift;
+#   - dose_pct: the dose so far (100% = 85 dB(A) for the whole shift);
+#   - projected_lex: the day's exposure if the latest level continues;
+#   - action: the action level the projection reaches.
 #
-# Events: the simulator's MQTT topic factory/sensors/noise (noise readings only).
+# Each reading counts for 1 s, as the sensor reports every second. Shifts follow the clock: a tumbling window starts
+# at a multiple of its length (8-hour shifts at 00:00, 08:00 and 16:00 UTC), so in the demo the first shift is usually
+# cut short. A version with a reduce, which counts the shift from when Liminal starts, is commented at the end.
 #
-#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
+# why compute by energy? For instance, half an hour at 80 dB(A) plus half an hour at 90 dB(A) gives an LAeq of about 87.4 dB(A), not 85, because 90 dB carries ten times the energy of 80.
+#
+# Demo: a 2-minute shift instead of 8 hours. For a real shift, set size_ms = 28800000 and replace 120.0 by 28800.0.
+#
+# Reads the MQTT topic factory/sensors/noise.
+#
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or noisy_period)
 #   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_noise_exposure.toml   (start it first)
 
@@ -43,77 +49,131 @@ output = "noise_energy"
 condition = { operation = "always" }
 actions = [{ type = "compute_field", field_path = "energy", expression = "math::pow(10.0, value / 10.0)" }]
 
-# Every 10 s: the period's average energy, and the plain average of the dB values for comparison.
-[pipelines.noise.stages.period]
+# The shift so far, with every reading: a window as long as the shift.
+[pipelines.noise.stages.shift]
 type = "window"
 inputs = ["noise_energy"]
-output = "noise_periods"
-
-[pipelines.noise.stages.period.parameters]
-kind = "tumbling"
-size_ms = 10000
-aggregates = [
-  { function = "avg", field = "energy", as = "energy_avg" },
-  { function = "avg", field = "value", as = "db_mean" },
-  { function = "count", as = "readings" },
-]
-
-# The period's equivalent level, and its length in seconds.
-[pipelines.noise.stages.period_level]
-type = "rule"
-inputs = ["noise_periods"]
-output = "noise_period_levels"
-
-[[pipelines.noise.stages.period_level.parameters.rules]]
-condition = { operation = "always" }
-actions = [
-  { type = "compute_field", field_path = "laeq", expression = "10.0 * log(energy_avg)" },
-  { type = "compute_field", field_path = "period_s", expression = "(window_end - window_start) / 1000.0" },
-]
-
-# The shift so far: exposure (energy × seconds) and elapsed time, then the level, dose and projection.
-[pipelines.noise.stages.shift]
-type = "reduce"
-inputs = ["noise_period_levels"]
-output = "noise_exposure"
+output = "noise_shift"
 
 [pipelines.noise.stages.shift.parameters]
-include_message = true
-initial = { exposure = 0.0, elapsed_s = 0.0, laeq_so_far = 0.0, dose_pct = 0.0, projected_lex = 0.0 }
-update = [
-  { field = "exposure", expression = "state.exposure + energy_avg * period_s" },
-  { field = "elapsed_s", expression = "state.elapsed_s + period_s" },
-  { field = "laeq_so_far", expression = "10.0 * log((state.exposure + energy_avg * period_s) / (state.elapsed_s + period_s))" },
-  { field = "dose_pct", expression = "100.0 * (state.exposure + energy_avg * period_s) / (120.0 * math::pow(10.0, 8.5))" },
-  { field = "projected_lex", expression = "10.0 * log((state.exposure + energy_avg * period_s + energy_avg * max(120.0 - state.elapsed_s - period_s, 0.0)) / 120.0)" },
+kind = "tumbling"
+size_ms = 120000
+emit = "every_message"
+aggregates = [
+  { function = "sum", field = "energy", as = "energy_sum" },
+  { function = "last", field = "value", as = "level" },
+  { function = "last", field = "ts", as = "ts_now" },
 ]
 
-# The directive's action level the projection reaches.
-[pipelines.noise.stages.action_level]
+# The time into the shift, the dose, the projection and the directive's action level. With each reading counting for
+# 1 s, energy_sum is the exposure so far (energy × seconds).
+[pipelines.noise.stages.report]
 type = "rule"
-inputs = ["noise_exposure"]
+inputs = ["noise_shift"]
 output = "noise_report"
 
-[[pipelines.noise.stages.action_level.parameters.rules]]
+[[pipelines.noise.stages.report.parameters.rules]]
+condition = { operation = "always" }
+actions = [{ type = "compute_field", field_path = "elapsed_s", expression = "(ts_now - window_start) / 1000.0" }]
+
+[[pipelines.noise.stages.report.parameters.rules]]
 condition = { operation = "always" }
 actions = [
+  # dose_pct = 100 × energy received so far / energy allowed for the whole shift
+  { type = "compute_field", field_path = "dose_pct", expression = "100.0 * energy_sum / (120.0 * math::pow(10.0, 85 / 10.0))" },
+  { type = "compute_field", field_path = "projected_lex", expression = "10.0 * log((energy_sum + math::pow(10.0, level / 10.0) * max(120.0 - elapsed_s, 0.0)) / 120.0)" },
   { type = "set_field", field_path = "action", value = "none" },
-  { type = "remove_field", field_path = "energy_avg" },
-  { type = "remove_field", field_path = "exposure" },
+  { type = "remove_field", field_path = "energy_sum" },
+  { type = "remove_field", field_path = "ts_now" },
 ]
 
-[[pipelines.noise.stages.action_level.parameters.rules]]
+[[pipelines.noise.stages.report.parameters.rules]]
 condition = { field_path = "projected_lex", operation = ">=", value = 80.0 }
 actions = [{ type = "set_field", field_path = "action", value = "80 dB(A): make hearing protection available" }]
 
-[[pipelines.noise.stages.action_level.parameters.rules]]
+[[pipelines.noise.stages.report.parameters.rules]]
 condition = { field_path = "projected_lex", operation = ">=", value = 85.0 }
 actions = [{ type = "set_field", field_path = "action", value = "85 dB(A): hearing protection must be worn" }]
 
-[[pipelines.noise.stages.action_level.parameters.rules]]
+[[pipelines.noise.stages.report.parameters.rules]]
 condition = { field_path = "projected_lex", operation = ">=", value = 87.0 }
 actions = [{ type = "set_field", field_path = "action", value = "87 dB(A): over the exposure limit" }]
 
 [outputs.console]
 type = "console"
 inputs = ["noise_report"]
+
+# --- Alternative: the same with a reduce -----------------------------------------------------------------------------
+#
+# Counts the shift from when Liminal starts, whatever the time, with a report every 10 s: a 10 s window averages the
+# energy, and a reduce adds each period to the shift so far. To use it, replace the `shift` and `report` stages above
+# with these (the `energy` stage and the console stay as they are). For a real shift, set size_ms = 1800000 (a report
+# every 30 min) and replace 120.0 by 28800.0.
+#
+# # Every 10 s: the period's average energy.
+# [pipelines.noise.stages.period]
+# type = "window"
+# inputs = ["noise_energy"]
+# output = "noise_periods"
+#
+# [pipelines.noise.stages.period.parameters]
+# kind = "tumbling"
+# size_ms = 10000
+# aggregates = [
+#   { function = "avg", field = "energy", as = "energy_avg" },
+# ]
+#
+# # The period's equivalent level, and its length in seconds.
+# [pipelines.noise.stages.period_level]
+# type = "rule"
+# inputs = ["noise_periods"]
+# output = "noise_period_levels"
+#
+# [[pipelines.noise.stages.period_level.parameters.rules]]
+# condition = { operation = "always" }
+# actions = [
+#   { type = "compute_field", field_path = "level", expression = "10.0 * log(energy_avg)" },
+#   { type = "compute_field", field_path = "period_s", expression = "(window_end - window_start) / 1000.0" },
+# ]
+#
+# # The shift so far: exposure (energy × seconds) and elapsed time, then the dose and the projection.
+# [pipelines.noise.stages.shift]
+# type = "reduce"
+# inputs = ["noise_period_levels"]
+# output = "noise_exposure"
+#
+# [pipelines.noise.stages.shift.parameters]
+# include_message = true
+# initial = { exposure = 0.0, elapsed_s = 0.0, dose_pct = 0.0, projected_lex = 0.0 }
+# update = [
+#   { field = "exposure", expression = "state.exposure + energy_avg * period_s" },
+#   { field = "elapsed_s", expression = "state.elapsed_s + period_s" },
+#   { field = "dose_pct", expression = "100.0 * (state.exposure + energy_avg * period_s) / (120.0 * math::pow(10.0, 8.5))" },
+#   { field = "projected_lex", expression = "10.0 * log((state.exposure + energy_avg * period_s + energy_avg * max(120.0 - state.elapsed_s - period_s, 0.0)) / 120.0)" },
+# ]
+#
+# # The directive's action level the projection reaches.
+# [pipelines.noise.stages.action_level]
+# type = "rule"
+# inputs = ["noise_exposure"]
+# output = "noise_report"
+#
+# [[pipelines.noise.stages.action_level.parameters.rules]]
+# condition = { operation = "always" }
+# actions = [
+#   { type = "set_field", field_path = "action", value = "none" },
+#   { type = "remove_field", field_path = "energy_avg" },
+#   { type = "remove_field", field_path = "exposure" },
+# ]
+#
+# [[pipelines.noise.stages.action_level.parameters.rules]]
+# condition = { field_path = "projected_lex", operation = ">=", value = 80.0 }
+# actions = [{ type = "set_field", field_path = "action", value = "80 dB(A): make hearing protection available" }]
+#
+# [[pipelines.noise.stages.action_level.parameters.rules]]
+# condition = { field_path = "projected_lex", operation = ">=", value = 85.0 }
+# actions = [{ type = "set_field", field_path = "action", value = "85 dB(A): hearing protection must be worn" }]
+#
+# [[pipelines.noise.stages.action_level.parameters.rules]]
+# condition = { field_path = "projected_lex", operation = ">=", value = 87.0 }
+# actions = [{ type = "set_field", field_path = "action", value = "87 dB(A): over the exposure limit" }]

@@ -272,7 +272,9 @@ mod tests {
     #[test]
     fn scenario_examples_can_be_built() {
         let mut built = 0;
-        for entry in std::fs::read_dir("config/shopfloor").expect("scenario directory exists") {
+        for entry in
+            std::fs::read_dir("config/shopfloor-proposed").expect("scenario directory exists")
+        {
             let path = entry.expect("readable entry").path();
             let name = path
                 .file_name()

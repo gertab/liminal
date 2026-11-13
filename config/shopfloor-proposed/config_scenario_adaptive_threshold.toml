@@ -1,19 +1,14 @@
 # Scenario: adaptive thresholds (condition monitoring)
 #
-# Instead of one fixed limit for every sensor, each vibration sensor is checked against its own recent behaviour:
-# an alert when a reading is above the average + 3 standard deviations of that sensor's recent readings. For example,
-# MM2 vibration 1 averages 0.10 g with σ = 0.01 g, so its limit is about 0.13 g: a reading of 0.14 g is unusual for
-# it, though far below any fixed alarm level that would suit all the sensors.
+# Instead of one fixed limit for every sensor, each vibration sensor is checked against its own recent readings: an  alert when a reading is above their average + 3 standard deviations (σ). For example, MM2 vibration 1 averages 0.10 g with σ = 0.01 g, so its limit is about 0.13 g. A reading of 0.14 g is unusual for it, though far below any fixed alarm level that would suit all the sensors.
 #
-# A sliding window per sensor outputs, with every reading, the window's average, standard deviation and newest value
-# (last). The first 20 readings are a warm-up. The window includes the newest reading itself, which raises σ a
-# little: with 40 readings in the window, a single reading needs to be about 3.4 σ out to show.
+# A sliding window per sensor gives, with every reading, the recent average, σ and the newest value (last). The first 20 readings are a warm-up. The window includes the newest reading, which raises σ a little, so a reading must be about 3.4 σ out (rather than 3) to show.
 #
-# Demo time scale: a 20 s baseline. For real monitoring, a longer one (e.g. size_ms = 3600000, an hour).
+# Demo: a 20 s baseline. For real monitoring, a longer one (e.g. size_ms = 3600000, an hour).
 #
-# Events: the simulator's MQTT topic factory/sensors/vibration (the MMs' vibration readings).
+# Reads the MQTT topic factory/sensors/vibration.
 #
-#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or vibration_anomaly)
 #   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_adaptive_threshold.toml
 

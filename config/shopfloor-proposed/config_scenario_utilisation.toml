@@ -1,19 +1,18 @@
 # Scenario: utilisation per MM, the share of the last minutes spent moving, performing or idle
 #
-# A reduce per MM follows its mode from its events: a move command starts moving, arriving (or being stopped) makes
-# it idle, and an action starts performing, until its next move. With every event it outputs how long the MM spent
-# in each mode since its previous event (dt). A sliding window then adds these up over the last "10 minutes", and a
-# rule turns them into shares.
+# A reduce per MM follows its mode from its events: a move command starts moving, arriving (or being stopped) makes it
+# idle, and an action starts performing, until its next move. With every event it outputs the time spent in each mode
+# since the MM's previous event (dt). A sliding window adds these up over the last 10 minutes, and a rule turns them
+# into shares.
 #
-# The MM's own sensors report every 0.5 s, so the time is counted even while it stands still. The simulator's
-# actions are instant, so "performing" is the time after an action until the next move (e.g. waiting at the machine).
+# The MM's sensors report every 0.5 s, so time is counted even while it stands still. The simulator's actions are
+# instant, so "performing" is the time after an action until the next move (e.g. waiting at the machine).
 #
-# Demo time scale: the last 20 s, every 5 s, instead of the last 10 min every minute (size_ms = 600000,
-# slide_ms = 60000).
+# Demo: the last 20 s, every 5 s, instead of the last 10 min every minute (size_ms = 600000, slide_ms = 60000).
 #
-# Events: the simulator's MQTT topics factory/mm/<mm> (everything about each MM), with the wildcard factory/mm/+.
+# Reads the MQTT topics factory/mm/mm1 and factory/mm/mm2 (everything about each MM), with the wildcard factory/mm/+.
 #
-#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto   (an MQTT broker on 127.0.0.1:1883)
+#   broker:         docker run -it -p 1883:1883 eclipse-mosquitto
 #   shopfloor-sim:  cargo run --bin shopfloor -- run scenarios/proposed-liminal-scenarios.toml --scene shift   (or production)
 #   Liminal:        cargo run -- --config config/shopfloor-proposed/config_scenario_utilisation.toml
 
@@ -48,7 +47,7 @@ update = [
   { field = "mode", expression = "\"performing\"", when = { field_path = "kind", operation = "equals", value = "action" } },
 ]
 
-# The last "10 minutes", every "minute".
+# The last 20 s, every 5 s (for real: the last 10 min, every minute).
 [pipelines.utilisation.stages.recent]
 type = "window"
 inputs = ["mm_time"]
@@ -65,7 +64,7 @@ aggregates = [
   { function = "sum", field = "idle_s", as = "idle_s" },
 ]
 
-# Shares of the time observed.
+# Each mode's share of the time observed, skipping a window with no time in it.
 [pipelines.utilisation.stages.shares]
 type = "rule"
 inputs = ["mm_recent"]
