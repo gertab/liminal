@@ -1,7 +1,6 @@
 # Shopfloor -> Liminal over MQTT: two separate subscriptions
 #
-# Reads two topics published by the shopfloor simulator's `mqtt` output (see "Streaming over MQTT" in its README),
-# each over its own connection to the broker:
+# Reads two topics published by the shopfloor simulator's `mqtt` output (see "Streaming over MQTT" in its README), each over its own connection to the broker:
 #   - shopfloor/sensors: sensor readings, flagged when a vibration sensor reads above 1.0 g;
 #   - shopfloor/mm1: everything about MM 1, trimmed to the actions it performs.
 #

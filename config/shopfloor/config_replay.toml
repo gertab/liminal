@@ -1,0 +1,48 @@
+# Prints every message of the shopfloor simulator's die-processing replay, received over TCP and over MQTT topics.
+#
+# It goes with scenarios/replay-example/die-processing.toml in shopfloor-sim, which replays two Liminal Desk traces (about 66 s). Each input has its own console output, so Liminal's log shows which channel a message arrived on:
+#   - tcp_events: every message, from the scenario's TCP output on 127.0.0.1:9000 (Liminal connects as a client);
+#   - mqtt_sensors: the die-cell/sensors topic on the broker at 127.0.0.1:1883, with the sensor readings;
+#   - mqtt_events: the die-cell/events topic, with the machine events (pick, place, move, dock and undock).
+# The two topics don't overlap, so each reading or machine event appears twice in the log: once from MQTT and once
+# from TCP. The scenario also publishes die-cell/mm-1 and die-cell/mm-2 (everything about each MM) and die-cell/all (every message), to split the stream another way.
+#
+# Run, in three terminals (the broker first, since Liminal subscribes to its topics when it starts):
+#   docker run -it -p 1883:1883 eclipse-mosquitto                                      # an MQTT broker
+#   cargo run -- --config config/shopfloor/config_replay.toml                          # Liminal, in this repo
+#   cargo run --bin shopfloor -- replay scenarios/replay-example/die-processing.toml   # in shopfloor-sim (or, in
+#                                                                                      # the app, open the scenario
+#                                                                                      # and start the replay)
+#
+# Liminal's TCP input reconnects every second, so it can also start after the simulator; it then misses what was
+# sent before it connected.
+
+[inputs.tcp]
+type = "tcp_input"
+output = "tcp_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = true, reconnect_interval_ms = 1000 }
+
+[inputs.mqtt_sensors]
+type = "mqtt_sub"
+output = "mqtt_sensors"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["die-cell/sensors"] }
+
+[inputs.mqtt_events]
+type = "mqtt_sub"
+output = "mqtt_events"
+channel = { type = "broadcast", capacity = 1024 }
+parameters = { broker_url = "mqtt://127.0.0.1:1883", topics = ["die-cell/events"] }
+
+[outputs.tcp_log]
+type = "console"
+inputs = ["tcp_events"]
+
+[outputs.mqtt_sensors_log]
+type = "console"
+inputs = ["mqtt_sensors"]
+
+[outputs.mqtt_events_log]
+type = "console"
+inputs = ["mqtt_events"]

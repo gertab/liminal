@@ -1,8 +1,6 @@
 # Shopfloor -> Liminal over TCP: MM 1 inside a no-go zone
 #
-# Alerts when MM 1 is inside the rectangle from (0, 0) to (2, 2) on scenarios/sample-floor.toml of the separate
-# shopfloor-sim project (the bottom-left corner of the floor). It needs one rule stage: keep MM 1's positions, test
-# the rectangle, alert.
+# Alerts when MM 1 is inside the rectangle from (0, 0) to (2, 2) on scenarios/sample-floor.toml of the separate shopfloor-sim project (the bottom-left corner of the floor). It needs one rule stage: keep MM 1's positions, test the rectangle, alert.
 #
 #   cargo run --bin shopfloor -- run scenarios/sample-floor.toml   (in shopfloor-sim)
 #   cargo run -- --config config/examples/config_shopfloor_no_go_zone_tcp.toml

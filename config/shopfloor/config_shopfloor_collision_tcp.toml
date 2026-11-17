@@ -1,8 +1,6 @@
 # Shopfloor -> Liminal over TCP: warn when MM 1 and MM 2 get too close
 #
-# The simulator (the separate shopfloor-sim project) doesn't avoid or report collisions, so this pipeline works
-# them out from the position stream of its scenarios/sample-floor.toml. The simulator listens on 127.0.0.1:9000;
-# this pipeline connects to it and reconnects whenever the simulator restarts, so either side can start first.
+# The simulator (the separate shopfloor-sim project) doesn't avoid or report collisions, so this pipeline works them out from the position stream of its scenarios/sample-floor.toml. The simulator listens on 127.0.0.1:9000; this pipeline connects to it and reconnects whenever the simulator restarts, so either side can start first.
 #
 #   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
 #   cargo run -- --config config/examples/config_shopfloor_collision_tcp.toml

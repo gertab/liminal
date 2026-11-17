@@ -1,8 +1,6 @@
 # Shopfloor -> Liminal over TCP: high vibration on MM 1 while it is parked
 #
-# Vibration while an MM is driving is expected; vibration while it is standing still is more suspicious. This pipeline
-# combines MM 1's speed (from its position reports) with its vibration readings, and alerts when the vibration is above
-# 1 g while the speed is 0. It uses scenarios/sample-floor.toml of the separate shopfloor-sim project: in the
+# Vibration while an MM is driving is expected; vibration while it is standing still is more suspicious. This pipeline combines MM 1's speed (from its position reports) with its vibration readings, and alerts when the vibration is above 1 g while the speed is 0. It uses scenarios/sample-floor.toml of the separate shopfloor-sim project: in the
 # `production` scene, MM 1's vibration is high from 15 s to 23 s, and it parks at the Stocker at about 22 s.
 #
 #   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
