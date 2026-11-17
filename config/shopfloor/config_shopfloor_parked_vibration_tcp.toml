@@ -46,7 +46,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.parked_vibration.stages.mm1_vibration.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "mm1.vibration" }
+condition = { field_path = "sensor_id", operation = "equals", value = "mm1.vibration" }
 actions = [{ type = "keep_only_fields", field_paths = ["value", "timestamp_ms"] }]
 else_actions = [{ type = "drop_message" }]
 

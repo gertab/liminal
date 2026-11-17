@@ -48,7 +48,7 @@ inputs = ["temperatures"]
 output = "deflasher_temperature"
 
 [[pipelines.deflasher.stages.temperature.parameters.rules]]
-condition = { field_path = "sensor", operation = "not_equals", value = "deflasher.temperature" }
+condition = { field_path = "sensor_id", operation = "not_equals", value = "deflasher.temperature" }
 actions = [{ type = "drop_message" }]
 
 # The last 2 "minutes", with every reading.
@@ -61,7 +61,7 @@ output = "deflasher_recent"
 kind = "sliding"
 size_ms = 10000
 emit = "every_message"
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 aggregates = [
   { function = "spread", field = "value", as = "spread" },
   { function = "last", field = "value", as = "temperature" },
@@ -106,11 +106,11 @@ output = "deflasher_readiness"
 [pipelines.deflasher.stages.readiness.parameters]
 initial = { settled = false, early_place = false, changed = false }
 update = [
-  { field = "settled", expression = "settled", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
-  { field = "changed", expression = "settled != state.settled", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
+  { field = "settled", expression = "settled", when = { field_path = "sensor_id", operation = "equals", value = "deflasher.temperature" } },
+  { field = "changed", expression = "settled != state.settled", when = { field_path = "sensor_id", operation = "equals", value = "deflasher.temperature" } },
   { field = "changed", expression = "false", when = { field_path = "event", operation = "equals", value = "place" } },
   { field = "early_place", expression = "!state.settled", when = { field_path = "event", operation = "equals", value = "place" } },
-  { field = "early_place", expression = "false", when = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" } },
+  { field = "early_place", expression = "false", when = { field_path = "sensor_id", operation = "equals", value = "deflasher.temperature" } },
 ]
 include_message = true
 

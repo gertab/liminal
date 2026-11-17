@@ -187,7 +187,7 @@ output = "vibration_stats"
 [pipelines.health.stages.vibration_stats.parameters]
 kind = "tumbling"                 # tumbling | sliding | last_n
 size_ms = 10000
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 aggregates = [
   { function = "avg", field = "value", as = "avg" },
   { function = "std", field = "value", as = "std" },
@@ -196,7 +196,7 @@ aggregates = [
 ```
 
 Each result is one message: the `group_by` fields, `window_start` and `window_end` (epoch ms), and each aggregate,
-e.g. `{"sensor": "s1", "window_start": 1762790000000, "window_end": 1762790010000, "avg": 0.10, "std": 0.01, "readings": 20}`.
+e.g. `{"sensor_id": "s1", "window_start": 1762790000000, "window_end": 1762790010000, "avg": 0.10, "std": 0.01, "readings": 20}`.
 
 | `kind` | Window | `emit = "on_close"` (default) | `emit = "every_message"` |
 |---|---|---|---|
@@ -285,7 +285,7 @@ inputs = ["sensor_readings"]
 output = "silence_alerts"
 
 [pipelines.health.stages.sensors_alive.parameters]
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 timeout_ms = 1500
 timeouts = { "machine2.temperature" = 3000 }        # sensors may have different rates
 expected_keys = ["mm1.vibration", "mm1.lidar", "machine2.temperature"]
@@ -295,8 +295,8 @@ emit_recovered = true
 Alerts look like this:
 
 ```json
-{"sensor": "mm1.vibration", "status": "silent", "timeout_ms": 1500, "silent_ms": 1500, "last_seen": 1762790000000}
-{"sensor": "mm1.vibration", "status": "recovered", "timeout_ms": 1500, "silent_ms": 10500, "last_seen": 1762790010500}
+{"sensor_id": "mm1.vibration", "status": "silent", "timeout_ms": 1500, "silent_ms": 1500, "last_seen": 1762790000000}
+{"sensor_id": "mm1.vibration", "status": "recovered", "timeout_ms": 1500, "silent_ms": 10500, "last_seen": 1762790010500}
 ```
 
 - **Keys** are the values of the `group_by` field: here each sensor has its own timer. Without `group_by`, each

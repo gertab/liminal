@@ -41,7 +41,7 @@ output = "spread_15"
 kind = "sliding"
 size_ms = 15000
 slide_ms = 1000
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 aggregates = [
   { function = "spread", field = "value", as = "spread" },
   { function = "first", field = "value", as = "first" },
@@ -54,11 +54,11 @@ inputs = ["spread_15"]
 output = "alerts_15"
 
 [[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" }
+condition = { field_path = "sensor_id", operation = "equals", value = "deflasher.temperature" }
 actions = [{ type = "set_field", field_path = "limit", value = 5.0 }]
 
 [[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "hall_temperature" }
+condition = { field_path = "sensor_id", operation = "equals", value = "hall_temperature" }
 actions = [{ type = "set_field", field_path = "limit", value = 1.1 }]
 
 [[pipelines.temperature_rate.stages.limit_15.parameters.rules]]
@@ -83,7 +83,7 @@ output = "spread_60"
 kind = "sliding"
 size_ms = 60000
 slide_ms = 5000
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 aggregates = [
   { function = "spread", field = "value", as = "spread" },
   { function = "first", field = "value", as = "first" },
@@ -96,11 +96,11 @@ inputs = ["spread_60"]
 output = "alerts_60"
 
 [[pipelines.temperature_rate.stages.limit_60.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "deflasher.temperature" }
+condition = { field_path = "sensor_id", operation = "equals", value = "deflasher.temperature" }
 actions = [{ type = "set_field", field_path = "limit", value = 20.0 }]
 
 [[pipelines.temperature_rate.stages.limit_60.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "hall_temperature" }
+condition = { field_path = "sensor_id", operation = "equals", value = "hall_temperature" }
 actions = [{ type = "set_field", field_path = "limit", value = 2.2 }]
 
 [[pipelines.temperature_rate.stages.limit_60.parameters.rules]]

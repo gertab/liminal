@@ -33,7 +33,7 @@ output = "per_second"
 [pipelines.downsampling.stages.per_second.parameters]
 kind = "tumbling"
 size_ms = 1000
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 aggregates = [
   { function = "min", field = "value", as = "min" },
   { function = "max", field = "value", as = "max" },

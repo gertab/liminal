@@ -19,7 +19,7 @@ parameters = { mode = "client", host = "127.0.0.1", port = 9000, reconnect = tru
 description = "Average MM 2's three vibration sensors"
 
 # One stage per sensor, each giving a channel with just that sensor's values. `sensor_set` events also
-# have a `sensor` field, so the first rule keeps readings only.
+# have a `sensor_id` field, so the first rule keeps readings only.
 [pipelines.mm2_average.stages.vibration_1]
 type = "rule"
 inputs = ["shopfloor_events"]
@@ -30,7 +30,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.mm2_average.stages.vibration_1.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "mm2.vibration_1" }
+condition = { field_path = "sensor_id", operation = "equals", value = "mm2.vibration_1" }
 actions = [{ type = "keep_only_fields", field_paths = ["value"] }]
 else_actions = [{ type = "drop_message" }]
 
@@ -44,7 +44,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.mm2_average.stages.vibration_2.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "mm2.vibration_2" }
+condition = { field_path = "sensor_id", operation = "equals", value = "mm2.vibration_2" }
 actions = [{ type = "keep_only_fields", field_paths = ["value"] }]
 else_actions = [{ type = "drop_message" }]
 
@@ -58,7 +58,7 @@ condition = { field_path = "kind", operation = "not_equals", value = "sensor" }
 actions = [{ type = "drop_message" }]
 
 [[pipelines.mm2_average.stages.vibration_3.parameters.rules]]
-condition = { field_path = "sensor", operation = "equals", value = "mm2.vibration_3" }
+condition = { field_path = "sensor_id", operation = "equals", value = "mm2.vibration_3" }
 actions = [{ type = "keep_only_fields", field_paths = ["value"] }]
 else_actions = [{ type = "drop_message" }]
 

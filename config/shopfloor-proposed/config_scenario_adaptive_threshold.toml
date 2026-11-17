@@ -34,7 +34,7 @@ output = "baselines"
 kind = "sliding"
 size_ms = 20000
 emit = "every_message"
-group_by = ["sensor"]
+group_by = ["sensor_id"]
 aggregates = [
   { function = "avg", field = "value", as = "avg" },
   { function = "std", field = "value", as = "std" },
