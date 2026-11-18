@@ -3,7 +3,7 @@
 # Consumes the event stream of the shopfloor simulator (the separate shopfloor-sim project). It listens on 127.0.0.1:9000 (`[output.sinks.tcp]` in its scenarios/sample-floor.toml); this pipeline connects to it and reconnects whenever the simulator restarts, so either side can start first.
 #
 #   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
-#   cargo run -- --config config/examples/config_shopfloor_tcp.toml
+#   cargo run -- --config config/shopfloor/config_shopfloor_tcp.toml
 #
 # (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).
 #

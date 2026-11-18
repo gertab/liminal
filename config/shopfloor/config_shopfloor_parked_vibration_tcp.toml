@@ -4,7 +4,7 @@
 # `production` scene, MM 1's vibration is high from 15 s to 23 s, and it parks at the Stocker at about 22 s.
 #
 #   cargo run --bin shopfloor -- run scenarios/sample-floor.toml --scene production   (in shopfloor-sim)
-#   cargo run -- --config config/examples/config_shopfloor_parked_vibration_tcp.toml
+#   cargo run -- --config config/shopfloor/config_shopfloor_parked_vibration_tcp.toml
 #
 # (or run the shopfloor app and play a scene there, and run this config from the Liminal GUI).
 #
